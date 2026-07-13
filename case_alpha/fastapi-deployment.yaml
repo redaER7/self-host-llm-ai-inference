@@ -9,7 +9,7 @@ spec:
     app: llm-gateway
   ports:
     - protocol: TCP
-      port: 80
+      port: 8000
       targetPort: 8000
 ---
 apiVersion: apps/v1
@@ -37,9 +37,9 @@ spec:
             - containerPort: 8000
           env:
             - name: VLLM_URL
-              value: "http://vllm-service.alpha.svc.cluster.local:8001"
+              value: "http://vllm-service.alpha.svc.cluster.local:8000"
             - name: VLLM_TIMEOUT
-              value: "300"
+              value: "120"
           resources:
             limits:
               cpu: "1"

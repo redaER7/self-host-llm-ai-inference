@@ -13,7 +13,7 @@ spec:
     app: vllm
   ports:
     - protocol: TCP
-      port: 8001
+      port: 8000
       targetPort: 8000
 ---
 apiVersion: apps/v1
@@ -38,6 +38,23 @@ spec:
           operator: "Equal"
           value: "true"
           effect: "NoSchedule"
+      
+      # DNS configuration
+      dnsPolicy: "ClusterFirst"
+      dnsConfig:
+        nameservers:
+          - 8.8.8.8
+          - 1.1.1.1
+          - 10.43.156.123  # CoreDNS service IP
+        options:
+          - name: ndots
+            value: "1"
+          - name: single-request-reopen
+          - name: timeout
+            value: "2"
+          - name: attempts
+            value: "5"
+      
       containers:
         - name: vllm
           image: vllm/vllm-openai:latest
@@ -66,15 +83,15 @@ spec:
                 secretKeyRef:
                   name: hf-token
                   key: token
-            - name: VLLM_URL
-              value: vllm-service.alpha.svc.cluster.local:8001
+            - name: HF_ENDPOINT
+              value: "https://huggingface.co"  # Use default, or use mirror if needed
           resources:
             limits:
               nvidia.com/gpu: "1"
-              memory: "4Gi"
+              memory: "8Gi"
             requests:
               nvidia.com/gpu: "1"
-              memory: "2Gi"
+              memory: "4Gi"
           volumeMounts:
             - name: dshm
               mountPath: /dev/shm
