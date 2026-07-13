@@ -1,0 +1,33 @@
+apiVersion: serving.kserve.io/v1alpha1
+kind: LLMInferenceService
+metadata:
+  name: deepseek-33b
+  namespace: beta
+spec:
+  model:
+    name: deepseek-coder-33b
+  replicas: 1
+  baseRefs:
+    - name: llm-d-vllm-template
+  template:
+    containers:
+      - name: main
+        resources:
+          limits:
+            nvidia.com/gpu: "1"
+            memory: 32Gi
+          requests:
+            nvidia.com/gpu: "1"
+            memory: 24Gi
+
+  router:
+    scheduler: {}
+    route: {}
+    gateway: {}
+  nodeSelector:
+    cloud: vast
+  tolerations:
+    - key: "vast-ai"
+      operator: "Equal"
+      value: "true"
+      effect: "NoSchedule"

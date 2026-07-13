@@ -1,0 +1,13 @@
+# Configures NVIDIA device plugin with mixed MIG strategy.
+# Apply alongside the shared nvidia-device-plugin DaemonSet.
+# Safe on non-MIG GPUs — no-op on RTX series.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nvidia-device-plugin-config
+  namespace: kube-system
+data:
+  config.yaml: |
+    version: v1
+    flags:
+      migStrategy: mixed

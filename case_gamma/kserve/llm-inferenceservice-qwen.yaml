@@ -1,0 +1,37 @@
+apiVersion: serving.kserve.io/v1alpha1
+kind: LLMInferenceService
+metadata:
+  name: qwen-llm
+  namespace: gamma
+spec:
+  model:
+    name: qwen2.5-7b
+  replicas: 1
+  baseRefs:
+    - name: llm-d-template
+  template:
+    containers:
+      - name: main
+        image: qwen-with-weights:latest
+        imagePullPolicy: IfNotPresent
+        args:
+          - --model
+          - Qwen/Qwen2.5-7B-Instruct-AWQ
+        resources:
+          limits:
+            nvidia.com/mig-1g.10gb: "1"
+            memory: 12Gi
+          requests:
+            nvidia.com/mig-1g.10gb: "1"
+            memory: 8Gi
+  router:
+    scheduler: {}
+    route: {}
+    gateway: {}
+  nodeSelector:
+    cloud: vast
+  tolerations:
+    - key: "vast-ai"
+      operator: "Equal"
+      value: "true"
+      effect: "NoSchedule"

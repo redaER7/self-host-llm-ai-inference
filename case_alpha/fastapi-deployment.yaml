@@ -1,0 +1,49 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: llm-gateway
+  namespace: alpha
+spec:
+  type: NodePort
+  selector:
+    app: llm-gateway
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 8000
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: llm-gateway
+  namespace: alpha
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: llm-gateway
+  template:
+    metadata:
+      labels:
+        app: llm-gateway
+    spec:
+      nodeSelector:
+        node-role.kubernetes.io/control-plane: "true"
+      containers:
+        - name: gateway
+          image: llm-gateway:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8000
+          env:
+            - name: VLLM_URL
+              value: "http://vllm-service.alpha.svc.cluster.local:8001"
+            - name: VLLM_TIMEOUT
+              value: "300"
+          resources:
+            limits:
+              cpu: "1"
+              memory: "512Mi"
+            requests:
+              cpu: "100m"
+              memory: "128Mi"

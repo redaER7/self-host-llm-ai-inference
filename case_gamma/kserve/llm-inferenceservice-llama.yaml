@@ -1,0 +1,37 @@
+apiVersion: serving.kserve.io/v1alpha1
+kind: LLMInferenceService
+metadata:
+  name: llama-llm
+  namespace: gamma
+spec:
+  model:
+    name: llama3-70b
+  replicas: 1
+  baseRefs:
+    - name: llm-d-template
+  template:
+    containers:
+      - name: main
+        image: llama-with-weights:latest
+        imagePullPolicy: IfNotPresent
+        args:
+          - --model
+          - meta-llama/Llama-3-70B-Instruct-AWQ
+        resources:
+          limits:
+            nvidia.com/mig-3g.40gb: "1"
+            memory: 48Gi
+          requests:
+            nvidia.com/mig-3g.40gb: "1"
+            memory: 40Gi
+  router:
+    scheduler: {}
+    route: {}
+    gateway: {}
+  nodeSelector:
+    cloud: vast
+  tolerations:
+    - key: "vast-ai"
+      operator: "Equal"
+      value: "true"
+      effect: "NoSchedule"

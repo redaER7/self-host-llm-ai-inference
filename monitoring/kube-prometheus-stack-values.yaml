@@ -1,0 +1,79 @@
+# Helm values for kube-prometheus-stack
+# Installs Prometheus, Grafana, Alertmanager, node_exporter, kube-state-metrics.
+# Tuned for a single-node K3s on Hetzner CX33 (4 vCPU, 8 GB RAM, 40 GB disk).
+
+# -- Global image registry (leave default)
+global:
+  imageRegistry: ""
+
+# -- Prometheus configuration
+prometheus:
+  enabled: true
+  prometheusSpec:
+    retention: 7d
+    resources:
+      limits:
+        cpu: 500m
+        memory: 512Mi
+      requests:
+        cpu: 200m
+        memory: 256Mi
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 10Gi
+    scrapeInterval: 30s
+    evaluationInterval: 30s
+
+# -- Grafana configuration
+grafana:
+  enabled: true
+  adminPassword: admin
+  resources:
+    limits:
+      cpu: 200m
+      memory: 256Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+  ingress:
+    enabled: false
+  service:
+    type: NodePort
+    port: 3000
+
+# -- Alertmanager configuration
+alertmanager:
+  enabled: true
+  resources:
+    limits:
+      cpu: 100m
+      memory: 128Mi
+    requests:
+      cpu: 50m
+      memory: 64Mi
+
+# -- Node exporter (DaemonSet on all nodes)
+nodeExporter:
+  enabled: true
+  resources:
+    limits:
+      cpu: 50m
+      memory: 64Mi
+    requests:
+      cpu: 25m
+      memory: 32Mi
+
+# -- kube-state-metrics
+kubeStateMetrics:
+  enabled: true
+  resources:
+    limits:
+      cpu: 100m
+      memory: 128Mi
+    requests:
+      cpu: 50m
+      memory: 64Mi

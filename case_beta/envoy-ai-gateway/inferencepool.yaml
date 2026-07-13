@@ -1,0 +1,23 @@
+apiVersion: inference.envoy.ai/v1alpha1
+kind: InferencePool
+metadata:
+  name: deepseek-pool
+  namespace: beta
+spec:
+  # References the KServe InferenceService service endpoint
+  selector:
+    app.kubernetes.io/name: deepseek-33b
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: deepseek-33b
+  failurePolicy: Fail
+---
+apiVersion: inference.envoy.ai/v1alpha1
+kind: InferenceModel
+metadata:
+  name: deepseek-coder-33b
+  namespace: beta
+spec:
+  modelName: deepseek-coder-33b
+  poolRef:
+    name: deepseek-pool
