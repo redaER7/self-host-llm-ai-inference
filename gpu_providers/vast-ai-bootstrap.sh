@@ -21,8 +21,9 @@ set -euo pipefail
 : "${LABELS:=cloud=vast,role=gpu}"
 : "${INSTALL_NVIDIA:=true}"
 
-echo "[1/7] Installing K3s agent"
+echo "[1/7] Installing K3s agent (v1.33.2+k3s1)"
 curl -sfL https://get.k3s.io | \
+  INSTALL_K3S_VERSION="v1.33.2+k3s1" \
   K3S_URL="$K3S_URL" \
   K3S_TOKEN="$K3S_TOKEN" \
   K3S_NODE_NAME="$NODE_NAME" \
