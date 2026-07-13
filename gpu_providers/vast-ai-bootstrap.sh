@@ -45,7 +45,20 @@ for pair in "${KV[@]}"; do
 done
 
 # Taint so only GPU workloads schedule here
-k3s kubectl taint node "$NODE_NAME" vast-ai=true:NoSchedule --overwrite 2>/dev/null || true
+k3s kubectl taint node "$NODE_NAME" gpu-node=true:NoSchedule --overwrite 2>/dev/null || true
+
+# Symlink K3s bundled CNI plugins to /opt/cni/bin (needed for pod sandbox networking)
+CNI_SRC=/var/lib/rancher/k3s/data/current/bin
+CNI_DST=/opt/cni/bin
+if [ -d "$CNI_SRC" ]; then
+  mkdir -p "$CNI_DST"
+  for plugin in "$CNI_SRC"/*; do
+    name=$(basename "$plugin")
+    if [ -f "$plugin" ] && [ ! -e "$CNI_DST/$name" ]; then
+      ln -sf "$plugin" "$CNI_DST/$name"
+    fi
+  done
+fi
 
 # Auto-detect GPU model
 if command -v nvidia-smi &>/dev/null; then

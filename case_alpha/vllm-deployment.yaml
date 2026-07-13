@@ -47,7 +47,7 @@ spec:
             - vllm.entrypoints.openai.api_server
           args:
             - --model
-            - deepseek-ai/DeepSeek-Coder-33B-Instruct-AWQ
+            - Qwen/Qwen2.5-0.5B-Instruct
             - --port
             - "8000"
             - --host
@@ -55,25 +55,26 @@ spec:
             - --dtype
             - auto
             - --max-model-len
-            - "8192"
+            - "4096"
             - --gpu-memory-utilization
-            - "0.90"
+            - "0.50"
+          ports:
+            - containerPort: 8000
           env:
-            - name: HUGGING_FACE_HUB_TOKEN
+            - name: HF_TOKEN
               valueFrom:
                 secretKeyRef:
                   name: hf-token
                   key: token
-                  optional: true
-          ports:
-            - containerPort: 8000
+            - name: VLLM_URL
+              value: vllm-service.alpha.svc.cluster.local:8001
           resources:
             limits:
               nvidia.com/gpu: "1"
-              memory: "32Gi"
+              memory: "4Gi"
             requests:
               nvidia.com/gpu: "1"
-              memory: "24Gi"
+              memory: "2Gi"
           volumeMounts:
             - name: dshm
               mountPath: /dev/shm
@@ -83,7 +84,7 @@ spec:
         - name: dshm
           emptyDir:
             medium: Memory
-            sizeLimit: "16Gi"
+            sizeLimit: "2Gi"
         - name: model-cache
           emptyDir:
-            sizeLimit: "60Gi"
+            sizeLimit: "5Gi"
