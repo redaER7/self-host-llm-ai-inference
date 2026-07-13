@@ -32,9 +32,9 @@ spec:
         app: vllm
     spec:
       nodeSelector:
-        cloud: vast
+        node-role.kubernetes.io/gpu-node: "true"
       tolerations:
-        - key: "vast-ai"
+        - key: "gpu-node"
           operator: "Equal"
           value: "true"
           effect: "NoSchedule"

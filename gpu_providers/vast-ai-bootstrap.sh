@@ -11,14 +11,14 @@ set -euo pipefail
 #
 # Optional env vars:
 #   NODE_NAME      — explicit node name (default: vast-<hostname>-<random>)
-#   LABELS         — extra node labels, comma-separated (default: cloud=vast,role=gpu)
+#   LABELS         — extra node labels, comma-separated (default: node-role.kubernetes.io/gpu-node=true,role=gpu)
 #   INSTALL_NVIDIA — install NVIDIA container toolkit (default: true)
 #   MIG_PROFILES   — if set, creates MIG partitions (e.g. "1g.10gb,3g.40gb") and labels node
 
 : "${K3S_URL:?K3S_URL is required}"
 : "${K3S_TOKEN:?K3S_TOKEN is required}"
 : "${NODE_NAME:=vast-$(hostname)-$(head -c6 /dev/urandom | base64 | tr -dc a-z0-9 | head -c6)}"
-: "${LABELS:=cloud=vast,role=gpu}"
+: "${LABELS:=node-role.kubernetes.io/gpu-node=true,role=gpu}"
 : "${INSTALL_NVIDIA:=true}"
 
 echo "[1/7] Installing K3s agent (v1.33.2+k3s1)"
