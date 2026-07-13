@@ -67,8 +67,9 @@ if [[ "$INSTALL_NVIDIA" == "true" ]]; then
       sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' | \
       tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
     apt-get update -qq && apt-get install -y -qq nvidia-container-toolkit
-    nvidia-ctk runtime configure --runtime=containerd
-    systemctl restart k3s-agent 2>/dev/null || true
+    nvidia-ctk runtime configure --runtime=containerd \
+      --config=/var/lib/rancher/k3s/agent/etc/containerd/config.toml.tmpl
+    systemctl restart k3s-agent
   fi
 fi
 
