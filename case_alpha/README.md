@@ -1,58 +1,39 @@
 # Case α (alpha) — Minimal Single Model
 
-FastAPI reverse proxy → vLLM → Vast.ai RTX 4090. No KServe, no llm-d.
+FastAPI reverse proxy → vLLM → GPU (single Vast.ai instance, no separate CP). No KServe, no llm-d.
 
 ## Architecture
 
 ```
-Client → FastAPI Gateway (port 80) → vLLM (port 8001) → GPU (RTX 4090)
+Client → kubectl port-forward → FastAPI Gateway → vLLM → GPU
 ```
+
+Everything runs on one Vast.ai instance — K3s server (control plane + workloads) on the same machine as the GPU.
 
 ## Requirements
 
-### Kubernetes Cluster
+### Instance (Vast.ai)
 
 | Resource | Minimum | Recommended |
 |----------|---------|-------------|
-| Kubernetes version | v1.25+ | v1.32+ |
-| K3s version | v1.25+ | v1.32+ |
-| Control plane nodes | 1 | 3 (HA) |
-| vCPU per node | 4 | 8 |
-| RAM per node | 8 GB | 16 GB |
-| Disk per node | 40 GB | 80 GB |
+| vCPU | 4 | 8 |
+| RAM | 8 GB | 16 GB |
+| Disk | 40 GB | 80 GB |
+| GPU | RTX 4090 (24 GB) | For larger models |
 
-> **Reference**: We use Hetzner Cloud (e.g. CX33, 4 vCPU / 8 GB RAM, ~€10.70/mo). Any K8s-ready provider works.
+### Vast.ai template ports
 
-### GPU (Vast.ai)
+| Port | Purpose |
+|------|---------|
+| (none required) | Use `kubectl port-forward` — no open inbound ports needed |
 
-| GPU | VRAM | Why |
-|-----|------|-----|
-| **RTX 4090** | 24 GB | Fits DeepSeek 33B AWQ (~19 GB) with room for KV cache |
-| RTX 6000 Ada | 48 GB | Overkill but works |
+### Software (pre-installed on image)
 
-### Storage
-
-| Type | Size | Purpose |
-|------|------|---------|
-| Control plane disk | 20–40 GB | K3s + OS + kubelet images |
-| Model weights (downloaded) | ~40 GB | DeepSeek-Coder-33B-Instruct-AWQ |
-
-### Networking
-
-| Component | Requirement |
-|-----------|-------------|
-| Vast.ai → Control plane | Direct public IP (K3s agent joins via K3S_URL) |
-| Client → FastAPI | NodePort or Ingress on control plane |
-| Ports | 6443 (K3s API), 80/443 (FastAPI) |
-
-### Software
-
-| Component | Version | Notes |
-|-----------|---------|-------|
-| K3s | v1.32+ | Lightweight Kubernetes |
-| NVIDIA device plugin | latest | GPU scheduling on Vast.ai node |
-| Docker | 24+ | For building the gateway image |
-| Python | 3.11+ | For local dev/testing (optional) |
+| Component | Notes |
+|-----------|-------|
+| Docker | For building the gateway image |
+| CUDA + nvidia-smi | GPU drivers |
+| curl, bash | Bootstrap prerequisites |
 
 ---
 
@@ -63,7 +44,7 @@ Client → FastAPI Gateway (port 80) → vLLM (port 8001) → GPU (RTX 4090)
 | `fastapi-gateway/` | FastAPI reverse proxy (Dockerfile + app code) |
 | `fastapi-deployment.yaml` | K8s Deployment + Service for the gateway |
 | `vllm-deployment.yaml` | K8s Deployment + Service + Namespace for vLLM |
-| `gpu_providers/vast-ai-bootstrap.sh` | K3s agent bootstrap for Vast.ai GPU instances |
+| `gpu_providers/vast-ai-single.sh` | Single-node K3s server bootstrap for Vast.ai |
 
 ---
 
@@ -103,11 +84,16 @@ Then update `vllm-deployment.yaml` to use `vllm-with-weights:latest` instead of 
 
 ## Deployment
 
-### 1. Prerequisites
+### 1. Bootstrap K3s on Vast.ai
 
-- K3s cluster running (see [k8s_control_plane](../k8s_control_plane/))
-- Vast.ai instance joined as K3s agent (see [gpu_providers/vast-ai-bootstrap.sh](../gpu_providers/vast-ai-bootstrap.sh))
-- NVIDIA device plugin installed on the Vast.ai node
+SSH into your Vast.ai instance and run:
+
+```bash
+# Copy the script to the instance or curl it from a raw URL
+bash gpu_providers/vast-ai-single.sh
+```
+
+This installs K3s server, configures the NVIDIA container runtime, and deploys the NVIDIA device plugin.
 
 ### 2. Create the Hugging Face token secret
 
@@ -116,49 +102,42 @@ kubectl create namespace alpha
 kubectl -n alpha create secret generic hf-token --from-literal=token=<your-hf-token>
 ```
 
-If the model is not gated (public), you can skip this step — the vLLM pod references it as optional.
+If the model is public (like Qwen/Qwen2.5-0.5B-Instruct), you can skip this step.
 
-### 3. Build and push the gateway image
+### 3. Build the gateway image (local, no registry needed)
 
 ```bash
-# Build
-docker build -t llm-gateway:latest ./fastapi-gateway
-
-# If using a multi-node cluster, push to a registry
-docker tag llm-gateway:latest <your-registry>/llm-gateway:latest
-docker push <your-registry>/llm-gateway:latest
+docker build -t llm-gateway:latest case_alpha/fastapi-gateway
 ```
 
-> **Note**: For a single-node cluster you can skip the registry — `imagePullPolicy: IfNotPresent` uses the locally built image.
+`imagePullPolicy: IfNotPresent` picks up the locally built image.
 
 ### 4. Deploy vLLM
 
 ```bash
-kubectl apply -f vllm-deployment.yaml
+kubectl apply -f case_alpha/vllm-deployment.yaml
 
-# Watch the pod — model download can take 5-15 min
+# Watch the pod — model download can take a few minutes
 kubectl -n alpha get pods -w
 ```
 
 ### 5. Deploy FastAPI gateway
 
 ```bash
-kubectl apply -f fastapi-deployment.yaml
+kubectl apply -f case_alpha/fastapi-deployment.yaml
 ```
 
-### 6. Test
+### 6. Test via port-forward
 
 ```bash
-# Get the gateway NodePort
-GATEWAY_PORT=$(kubectl -n alpha get svc llm-gateway -o jsonpath='{.spec.ports[0].nodePort}')
-GATEWAY_IP=<any-control-plane-node-ip>
+kubectl -n alpha port-forward svc/llm-gateway 8080:8000 &
 
-curl -X POST http://$GATEWAY_IP:$GATEWAY_PORT/v1/chat/completions \
+curl -X POST http://localhost:8080/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "deepseek-ai/DeepSeek-Coder-33B-Instruct-AWQ",
-    "messages": [{"role": "user", "content": "Write a hello world in Python"}],
-    "max_tokens": 100
+    "model": "Qwen/Qwen2.5-0.5B-Instruct",
+    "messages": [{"role": "user", "content": "Say hello in Python"}],
+    "max_tokens": 50
   }'
 ```
 

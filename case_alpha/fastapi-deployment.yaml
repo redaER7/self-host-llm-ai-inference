@@ -27,8 +27,6 @@ spec:
       labels:
         app: llm-gateway
     spec:
-      nodeSelector:
-        node-role.kubernetes.io/control-plane: "true"
       containers:
         - name: gateway
           image: llm-gateway:latest
