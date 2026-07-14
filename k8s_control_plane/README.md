@@ -17,9 +17,24 @@ bash k3s-install.sh
 
 This outputs `K3S_URL` and `K3S_TOKEN` — use those to bootstrap Vast.ai GPU workers.
 
-### 3. Apply GPU manifests
+### 3. Open firewall ports
 
-Once a Vast.ai node has joined:
+Ensure the Hetzner cloud firewall allows:
+
+| Port | Source | Purpose |
+|------|--------|---------|
+| 6443 | 0.0.0.0/0 | K3s API server (GPU nodes join via public IP) |
+| 51820/udp | 10.8.0.0/24 | WireGuard (wg-easy Docker container) |
+
+### 4. Verify node joins
+
+```bash
+kubectl get nodes
+```
+
+Expected: control-plane node (Ready) + GPU node (Ready, role gpu-node).
+
+### 5. Apply GPU manifests
 
 ```bash
 bash apply-gpu-manifests.sh

@@ -1,9 +1,4 @@
 apiVersion: v1
-kind: Namespace
-metadata:
-  name: alpha
----
-apiVersion: v1
 kind: Service
 metadata:
   name: vllm-service
@@ -13,8 +8,8 @@ spec:
     app: vllm
   ports:
     - protocol: TCP
-      port: 8000
-      targetPort: 8000
+      port: 8100
+      targetPort: 8100
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -33,6 +28,14 @@ spec:
     spec:
       hostNetwork: true
       dnsPolicy: ClusterFirstWithHostNet
+      dnsConfig:
+        nameservers:
+          - 8.8.8.8
+          - 1.1.1.1
+          - 10.43.0.10  # CoreDNS as fallback
+        options:
+          - name: ndots
+            value: "1"
       nodeSelector:
         node-role.kubernetes.io/gpu-node: "true"
       tolerations:
@@ -49,9 +52,9 @@ spec:
             - vllm.entrypoints.openai.api_server
           args:
             - --model
-            - Qwen/Qwen2.5-0.5B-Instruct
+            - TheBloke/DeepSeek-Coder-33B-Instruct-AWQ
             - --port
-            - "8000"
+            - "8100"
             - --host
             - "0.0.0.0"
             - --dtype
@@ -59,24 +62,18 @@ spec:
             - --max-model-len
             - "4096"
             - --gpu-memory-utilization
-            - "0.50"
+            - "0.9"
           ports:
-            - containerPort: 8000
-          env:
-            - name: HF_TOKEN
-              valueFrom:
-                secretKeyRef:
-                  name: hf-token
-                  key: token
-            - name: HF_ENDPOINT
-              value: "https://huggingface.co"  # Use default, or use mirror if needed
+            - containerPort: 8100
+              hostPort: 8100
+          env: []
           resources:
             limits:
               nvidia.com/gpu: "1"
-              memory: "8Gi"
+              memory: "22Gi"
             requests:
               nvidia.com/gpu: "1"
-              memory: "4Gi"
+              memory: "18Gi"
           volumeMounts:
             - name: dshm
               mountPath: /dev/shm

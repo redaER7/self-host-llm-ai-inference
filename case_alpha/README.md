@@ -1,75 +1,96 @@
 # Case α (alpha) — Minimal Single Model
 
-FastAPI reverse proxy → vLLM → GPU (single Vast.ai instance, no separate CP). No KServe, no llm-d.
+FastAPI reverse proxy → vLLM on a Vast.ai GPU, with a WireGuard tunnel connecting the Hetzner control plane to the GPU node. No KServe, no llm-d.
 
 ## Architecture
 
 ```
-Client → kubectl port-forward → FastAPI Gateway → vLLM → GPU
+                              ┌─────────────────────┐
+                              │   Hetzner CX33       │
+                              │   K3s control-plane  │
+                              │                      │
+ Client ──port-forward──→ FastAPI Gateway (hostNetwork)
+                              │       │
+                              │ 10.8.0.1 (wg-easy)
+                              │       │
+                          WireGuard   │
+                              │       │
+                              │ 10.8.0.2 (client)
+                              │       │
+                              │  vLLM (hostNetwork)
+                              │       │
+                              │   GPU (RTX 4090)
+                              └───────┴─────────────┘
 ```
 
-Everything runs on one Vast.ai instance — K3s server (control plane + workloads) on the same machine as the GPU.
+| Component | Where | Detail |
+|-----------|-------|--------|
+| K3s CP | Hetzner CX33 (4 vCPU, 8 GB) | K3s server, `node-role.kubernetes.io/control-plane` |
+| GPU worker | Vast.ai instance | K3s agent, `gpu-node` label + taint |
+| FastAPI gateway | Hetzner CP | `hostNetwork: true`, reaches vLLM via WireGuard |
+| vLLM | Vast.ai GPU | `hostNetwork: true`, listens on host's WireGuard IP |
+| WireGuard | Hetzner (wg-easy) ↔ Vast.ai (client) | Data-plane tunnel, subnet 10.8.0.0/24 |
+| Client access | Local machine | `kubectl port-forward svc/llm-gateway 8080:8000` |
+
+Both pods use `hostNetwork: true` — the gateway connects to vLLM directly at the GPU node's WireGuard IP (`10.8.0.2:8000`), bypassing ClusterIP routing and avoiding cross-node VXLAN issues.
+
+### WireGuard Notes
+
+- The K3s API uses the **public IP** (`K3S_URL=https://<hetzner-public>:6443`) because wg-easy runs in Docker and owns `10.8.0.1` — the host K3s server is not directly reachable on that IP.
+- The WireGuard tunnel only carries **data-plane** traffic (gateway → vLLM at `10.8.0.2:8000`), which is the latency-sensitive path.
+- `dnsPolicy: ClusterFirstWithHostNet` on both pods ensures CoreDNS still resolves service names despite host networking.
 
 ## Requirements
 
-### Instance (Vast.ai)
-
-| Resource | Minimum | Recommended |
-|----------|---------|-------------|
-| vCPU | 4 | 8 |
-| RAM | 8 GB | 16 GB |
-| Disk | 40 GB | 80 GB |
-| GPU | RTX 4090 (24 GB) | For larger models |
-
-### Vast.ai template ports
+### Vast.ai Template Ports
 
 | Port | Purpose |
 |------|---------|
-| (none required) | Use `kubectl port-forward` — no open inbound ports needed |
+| 8472 | Flannel VXLAN (required for pod networking) |
+| 10250 | Kubelet (required for kubectl exec, logs, port-forward) |
+| 8000 | vLLM HTTP API (when using NodePort; not needed with hostNetwork + WireGuard) |
 
-### Software (pre-installed on image)
+### Hetzner Firewall
+
+| Port | Source | Purpose |
+|------|--------|---------|
+| 6443 | 0.0.0.0/0 | K3s API — GPU node joins via public IP |
+| 51820/udp | 10.8.0.0/24 | WireGuard (wg-easy container) |
+| 22 | 0.0.0.0/0 | SSH |
+
+### Software
 
 | Component | Notes |
 |-----------|-------|
+| K3s v1.33+ | Lightweight Kubernetes |
+| NVIDIA device plugin | GPU scheduling on Vast.ai node |
 | Docker | For building the gateway image |
-| CUDA + nvidia-smi | GPU drivers |
-| curl, bash | Bootstrap prerequisites |
-
----
+| CUDA 12.x | Pre-installed on Vast.ai GPU images |
+| WireGuard tools | On Vast.ai, for tunnel client |
 
 ## Contents
 
 | File / Dir | Purpose |
 |------------|---------|
 | `fastapi-gateway/` | FastAPI reverse proxy (Dockerfile + app code) |
-| `fastapi-deployment.yaml` | K8s Deployment + Service for the gateway |
+| `fastapi-deployment.yaml` | K8s Deployment + Service for the gateway (ClusterIP) |
 | `vllm-deployment.yaml` | K8s Deployment + Service + Namespace for vLLM |
-| `gpu_providers/vast-ai-single.sh` | Single-node K3s server bootstrap for Vast.ai |
-
----
+| `gpu_providers/vast-ai-bootstrap.sh` | K3s agent bootstrap for Vast.ai GPU instances |
 
 ## Model Weight Strategy
 
-By default, vLLM downloads the model weights from Hugging Face at pod startup. This is simple but adds ~5-15 min cold start on first launch.
+By default, vLLM downloads the model weights from Hugging Face at pod startup.
 
 | Strategy | Cold Start | Image Size | When to use |
 |----------|-----------|------------|-------------|
 | **HF download** (default) | 5–15 min | ~1 GB (python + vLLM) | First deployment, prototyping |
-| **Baked in Docker image** | ~10 s | ~20 GB (includes ~19 GB weights) | Hot start, frequent pod restarts |
+| **Baked in Docker image** | ~10 s | ~20 GB (includes weights) | Hot start, frequent restarts |
 
-### Option A: Hugging Face download (default)
+### Hugging Face download (default)
 
-The `vllm-deployment.yaml` references the model by name — vLLM downloads it from HF at startup:
+The `vllm-deployment.yaml` references the model by name — vLLM downloads it at startup. A `HF_TOKEN` secret is needed for gated models. Weights are cached in an `emptyDir` volume under `/root/.cache/huggingface/`.
 
-```
-deepseek-ai/DeepSeek-Coder-33B-Instruct-AWQ
-```
-
-A `HUGGING_FACE_HUB_TOKEN` secret is needed for gated models. The weights are cached in an `emptyDir` volume under `/root/.cache/huggingface/`.
-
-### Option B: Bake weights into a custom vLLM image (hot start)
-
-Pre-download the model and build a custom image:
+### Bake weights into a custom vLLM image
 
 ```bash
 bash model-image/build.sh \
@@ -78,56 +99,123 @@ bash model-image/build.sh \
   --tag vllm-with-weights:latest
 ```
 
-Then update `vllm-deployment.yaml` to use `vllm-with-weights:latest` instead of `vllm/vllm-openai:latest`.
-
----
+Then update `vllm-deployment.yaml` to use the custom image.
 
 ## Deployment
 
-### 1. Bootstrap K3s on Vast.ai
-
-SSH into your Vast.ai instance and run:
+### 1. Bootstrap the Hetzner control plane
 
 ```bash
-# Copy the script to the instance or curl it from a raw URL
-bash gpu_providers/vast-ai-single.sh
+ssh root@<hetzner-ip>
+bash k8s_control_plane/k3s-install.sh
 ```
 
-This installs K3s server, configures the NVIDIA container runtime, and deploys the NVIDIA device plugin.
+Note the `K3S_URL` and `K3S_TOKEN` output.
 
-### 2. Create the Hugging Face token secret
+### 2. Create a Vast.ai instance
+
+- Image: Ubuntu 22.04 with CUDA 12.x
+- Open ports: **8472**, **10250**
+- SSH in after provisioning
+
+### 3. Bootstrap the GPU node
+
+```bash
+export K3S_URL=https://<hetzner-public-ip>:6443
+export K3S_TOKEN=<node-token>
+bash gpu_providers/vast-ai-bootstrap.sh
+```
+
+Verify the node joins:
+
+```bash
+kubectl get nodes
+```
+
+Expected: `albab-server-0` (control-plane) and `vast-*` (gpu-node), both Ready.
+
+### 4. Apply NVIDIA device plugin
+
+```bash
+bash k8s_control_plane/apply-gpu-manifests.sh
+```
+
+### 5. Set up WireGuard tunnel
+
+On the **Vast.ai** instance, install and configure the WireGuard client:
+
+```bash
+sudo apt update
+sudo apt install -y wireguard-tools resolvconf
+sudo modprobe wireguard
+sudo systemctl enable resolvconf
+sudo systemctl start resolvconf
+```
+
+Create `/etc/wireguard/wg0.conf` with the client config from the wg-easy admin UI:
+
+```ini
+[Interface]
+PrivateKey = <client-private-key>
+Address = 10.8.0.2/24
+DNS = 10.8.0.1
+
+[Peer]
+PublicKey = <server-public-key>
+PresharedKey = <preshared-key>
+Endpoint = <hetzner-public-ip>:51820
+AllowedIPs = 10.8.0.0/24
+PersistentKeepalive = 25
+```
+
+Start the tunnel:
+
+```bash
+sudo systemctl enable wg-quick@wg0
+sudo systemctl start wg-quick@wg0
+```
+
+Allow traffic from the tunnel to reach vLLM on port 8000:
+
+```bash
+sudo ufw allow from 10.8.0.0/24 to any port 8000 proto tcp
+```
+
+### 6. Create the Hugging Face token secret
 
 ```bash
 kubectl create namespace alpha
 kubectl -n alpha create secret generic hf-token --from-literal=token=<your-hf-token>
 ```
 
-If the model is public (like Qwen/Qwen2.5-0.5B-Instruct), you can skip this step.
+Skip this step if the model is public (e.g., Qwen/Qwen2.5-0.5B-Instruct).
 
-### 3. Build the gateway image (local, no registry needed)
+### 7. Build and deploy the gateway image
 
 ```bash
 docker build -t llm-gateway:latest case_alpha/fastapi-gateway
+
+# If using a registry (multi-node):
+# docker tag llm-gateway:latest <registry>/llm-gateway:latest
+# docker push <registry>/llm-gateway:latest
 ```
 
-`imagePullPolicy: IfNotPresent` picks up the locally built image.
-
-### 4. Deploy vLLM
+### 8. Deploy vLLM
 
 ```bash
 kubectl apply -f case_alpha/vllm-deployment.yaml
-
-# Watch the pod — model download can take a few minutes
 kubectl -n alpha get pods -w
 ```
 
-### 5. Deploy FastAPI gateway
+Wait for the vLLM pod to reach `Running`. Model download may take a few minutes.
+
+### 9. Deploy FastAPI gateway
 
 ```bash
 kubectl apply -f case_alpha/fastapi-deployment.yaml
 ```
 
-### 6. Test via port-forward
+### 10. Test via port-forward
 
 ```bash
 kubectl -n alpha port-forward svc/llm-gateway 8080:8000 &
@@ -140,17 +228,6 @@ curl -X POST http://localhost:8080/v1/chat/completions \
     "max_tokens": 50
   }'
 ```
-
----
-
-## What alpha does NOT include
-
-- KServe (no CRDs, no InferenceService)
-- llm-d (no router, no EPP scheduler, no prefix-cache routing)
-- Envoy AI Gateway (no token metering, no rate limiting)
-- Scale-to-zero (pod runs 24/7)
-- MIG or GPU sharing
-- Multi-model serving
 
 ## When to use alpha
 
