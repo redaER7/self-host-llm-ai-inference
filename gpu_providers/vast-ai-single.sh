@@ -7,33 +7,18 @@ set -euo pipefail
 # Usage:
 #   bash vast-ai-single.sh
 
-echo "[1/5] Installing K3s server (v1.33.2+k3s1)"
+echo "[1/6] Installing K3s server (v1.33.2+k3s1, skip start)"
 curl -sfL https://get.k3s.io | \
   INSTALL_K3S_VERSION="v1.33.2+k3s1" \
+  INSTALL_K3S_SKIP_START=true \
+  INSTALL_K3S_SKIP_ENABLE=true \
   INSTALL_K3S_EXEC="server \
     --disable=traefik \
     --disable=servicelb \
     --write-kubeconfig-mode=644" \
   sh -
 
-echo "[2/5] Labeling node"
-NODE_NAME=$(hostname)
-k3s kubectl label node "$NODE_NAME" \
-  node-role.kubernetes.io/gpu-node="true" \
-  role="gpu" \
-  --overwrite 2>/dev/null || true
-k3s kubectl taint node "$NODE_NAME" gpu-node=true:NoSchedule --overwrite 2>/dev/null || true
-
-# Auto-detect GPU model
-if command -v nvidia-smi &>/dev/null; then
-  GPU_MODEL=$(nvidia-smi --query-gpu=name --format=csv,noheader | head -n1)
-  GPU_COUNT=$(nvidia-smi --query-gpu=name --format=csv,noheader | wc -l)
-  k3s kubectl label node "$NODE_NAME" "gpu-model=$GPU_MODEL" --overwrite 2>/dev/null || true
-  k3s kubectl label node "$NODE_NAME" "gpu-count=$GPU_COUNT" --overwrite 2>/dev/null || true
-  echo "   Detected: $GPU_COUNT x $GPU_MODEL"
-fi
-
-echo "[3/5] Installing NVIDIA container toolkit"
+echo "[2/6] Installing NVIDIA container toolkit"
 if ! command -v nvidia-ctk &>/dev/null; then
   distribution=$(. /etc/os-release;echo "$ID$VERSION_ID")
   curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
@@ -43,9 +28,9 @@ if ! command -v nvidia-ctk &>/dev/null; then
   apt-get update -qq && apt-get install -y -qq nvidia-container-toolkit
 fi
 
-echo "[4/5] Writing containerd config with NVIDIA runtime"
+echo "[3/6] Writing containerd config with NVIDIA runtime"
 CONFIG_FILE=/var/lib/rancher/k3s/agent/etc/containerd/config.toml.tmpl
-cp "$CONFIG_FILE" "${CONFIG_FILE}.bak" 2>/dev/null || true
+mkdir -p "$(dirname "$CONFIG_FILE")"
 cat > "$CONFIG_FILE" << 'CONFIGEOF'
 imports = ["/etc/containerd/conf.d/*.toml"]
 version = 2
@@ -98,16 +83,41 @@ version = 2
     stream_server_port = "10010"
 CONFIGEOF
 
-echo "[5/5] Applying NVIDIA device plugin and restarting K3s"
-systemctl restart k3s
-k3s kubectl apply -f https://raw.githubusercontent.com/NVIDIA/k8s-device-plugin/v0.17.0/deployments/static/nvidia-device-plugin.yml
+echo "[4/6] Starting K3s server"
+systemctl enable k3s
+systemctl start k3s
+
+echo "[5/6] Waiting for node to register"
+NODE_NAME=$(hostname)
+for i in $(seq 1 60); do
+  if k3s kubectl get node "$NODE_NAME" 2>/dev/null | grep -q Ready; then
+    break
+  fi
+  sleep 3
+done
+
+echo "[6/6] Labeling node and applying device plugin"
+k3s kubectl label node "$NODE_NAME" \
+  node-role.kubernetes.io/gpu-node="true" \
+  role="gpu" \
+  --overwrite 2>/dev/null || true
+k3s kubectl taint node "$NODE_NAME" gpu-node=true:NoSchedule --overwrite 2>/dev/null || true
+
+# Auto-detect GPU model
+if command -v nvidia-smi &>/dev/null; then
+  GPU_MODEL=$(nvidia-smi --query-gpu=name --format=csv,noheader | head -n1)
+  GPU_COUNT=$(nvidia-smi --query-gpu=name --format=csv,noheader | wc -l)
+  k3s kubectl label node "$NODE_NAME" "gpu-model=$GPU_MODEL" --overwrite 2>/dev/null || true
+  k3s kubectl label node "$NODE_NAME" "gpu-count=$GPU_COUNT" --overwrite 2>/dev/null || true
+  echo "   Detected: $GPU_COUNT x $GPU_MODEL"
+fi
+
 
 echo ""
 echo "=========================================="
 echo " K3s Single-Node Ready"
 echo "=========================================="
 echo " Export these for kubectl from your local:"
-echo "   export KUBECONFIG=~/vast-kubeconfig"
 echo "   k3s kubectl config view --raw > ~/vast-kubeconfig"
 echo " Then use the server IP + port 6443"
 echo "=========================================="

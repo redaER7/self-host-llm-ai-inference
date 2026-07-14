@@ -31,6 +31,15 @@ spec:
       labels:
         app: vllm
     spec:
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      nodeSelector:
+        node-role.kubernetes.io/gpu-node: "true"
+      tolerations:
+        - key: "gpu-node"
+          operator: "Equal"
+          value: "true"
+          effect: "NoSchedule"
       containers:
         - name: vllm
           image: vllm/vllm-openai:latest

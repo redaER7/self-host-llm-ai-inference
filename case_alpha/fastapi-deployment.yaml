@@ -27,6 +27,10 @@ spec:
       labels:
         app: llm-gateway
     spec:
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      nodeSelector:
+        node-role.kubernetes.io/control-plane: "true"
       containers:
         - name: gateway
           image: llm-gateway:latest
@@ -35,7 +39,7 @@ spec:
             - containerPort: 8000
           env:
             - name: VLLM_URL
-              value: "http://vllm-service.alpha.svc.cluster.local:8000"
+              value: "http://10.8.0.2:8000" # GPU node WireGuard IP
             - name: VLLM_TIMEOUT
               value: "120"
           resources:
