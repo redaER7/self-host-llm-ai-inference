@@ -31,24 +31,28 @@ spec:
       dnsPolicy: ClusterFirstWithHostNet
       nodeSelector:
         node-role.kubernetes.io/control-plane: "true"
+      imagePullSecrets:
+        - name: registry-credentials
       containers:
         - name: gateway
-          image: llm-gateway:latest
-          imagePullPolicy: IfNotPresent
+          image: docker-registry.yacodata.com/llm-gateway:latest
+          imagePullPolicy: Always
           ports:
             - containerPort: 8200
-          command: 
-            - uvicorn
-            - main:app
-            - --host
-            - "0.0.0.0"
-            - --port
-            - "8200"
+              hostPort: 8200   # Added for hostNetwork
+          #command:
+          #  - uvicorn
+          #args:
+          #  - app.main:app
+          #  - --host
+          #  - "0.0.0.0"
+          #  - --port
+          #  - "8200"
           env:
             - name: VLLM_URL
-              value: "http://10.8.0.2:8100" # GPU node WireGuard IP
+              value: "http://10.8.0.4:8100"  # GPU node IP + vLLM port
             - name: VLLM_TIMEOUT
-              value: "120"
+              value: "300"
           resources:
             limits:
               cpu: "1"

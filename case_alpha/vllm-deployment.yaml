@@ -66,7 +66,12 @@ spec:
           ports:
             - containerPort: 8100
               hostPort: 8100
-          env: []
+          env:
+            - name: HF_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: hf-token
+                  key: token
           resources:
             limits:
               nvidia.com/gpu: "1"
