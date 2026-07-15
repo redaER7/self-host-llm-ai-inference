@@ -3,6 +3,8 @@ kind: Gateway
 metadata:
   name: ai-gateway
   namespace: envoy-ai-gateway-system
+  labels:
+    serving.kserve.io/gateway: kserve-ingress-gateway
 spec:
   gatewayClassName: envoy
   infrastructure:
@@ -18,3 +20,6 @@ spec:
         mode: Terminate
         certificateRefs:
           - name: envoy-tls-cert
+      allowedRoutes:
+        namespaces:
+          from: All
