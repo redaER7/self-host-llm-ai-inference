@@ -23,7 +23,7 @@ We use **Vast.ai** on-demand instances for GPU workers — they allow quick depl
 | Case | Name | Gateway | LLM Stack | GPU Provider | Models |
 |------|------|---------|-----------|-------------|--------|
 | **α** | alpha | FastAPI | vLLM (plain) | Vast.ai | DeepSeek 33B (single) |
-| **β** | beta | Envoy AI Gateway | KServe + vLLM + llm-d | Vast.ai | DeepSeek 33B (single) |
+| **β** | beta | Envoy AI Gateway | KServe + vLLM + llm-d | Vast.ai | Qwen 2.5-7B (all on GPU node) |
 | **γ** | gamma | Envoy AI Gateway | KServe + vLLM + llm-d | Vast.ai (MIG) | Qwen 7B + Llama 3 70B |
 | **Ω** | omega | Envoy AI Gateway | KServe + vLLM + llm-d | RunPod | Qwen 7B + DeepSeek 33B + Llama 3 70B |
 
@@ -33,15 +33,26 @@ See [Plan.md](./Plan.md) for full architecture details.
 
 ## Case α (alpha) — Minimal Single Model
 
-Simplest possible path: a FastAPI reverse proxy in front of a single vLLM pod running on a rented Vast.ai GPU.
-
-### Architecture
+Simplest possible path: a FastAPI reverse proxy in front of a single vLLM pod running on a Vast.ai GPU worker, with a WireGuard tunnel connecting the Hetzner control plane to the GPU node.
 
 ```
-K8s Control Plane (Hetzner) → FastAPI → vLLM (Deployment)
-                                           │
-                              Vast.ai RTX 4090 (K3s agent joined via bootstrap)
+Client ──kubectl port-forward──→ FastAPI Gateway (Hetzner CP, hostNetwork)
+                                       │
+                                 WireGuard tunnel (10.8.0.0/24)
+                                       │
+                                 vLLM (Vast.ai GPU, hostNetwork)
 ```
+
+| Component | Where | Detail |
+|-----------|-------|--------|
+| K3s control plane | Hetzner CX33 | K3s server, `node-role.kubernetes.io/control-plane` |
+| GPU worker | Vast.ai | K3s agent, `node-role.kubernetes.io/gpu-node`, taint `gpu-node=true:NoSchedule` |
+| FastAPI gateway | Hetzner CP | `hostNetwork: true`, nodeSelector for control-plane |
+| vLLM | Vast.ai GPU | `hostNetwork: true`, nodeSelector + toleration for gpu-node |
+| WireGuard tunnel | Hetzner CP ↔ Vast.ai | wg-easy on Hetzner, client on Vast.ai |
+| Client access | Local machine | `kubectl port-forward svc/llm-gateway 8080:8000` |
+
+Both pods use `hostNetwork: true` — the gateway reaches vLLM directly at the GPU node's WireGuard IP (`10.8.0.2:8000`), bypassing ClusterIP routing and avoiding cross-node VXLAN issues.
 
 ### Requirements
 
@@ -58,15 +69,6 @@ K8s Control Plane (Hetzner) → FastAPI → vLLM (Deployment)
 
 > **Reference**: We use Hetzner Cloud (e.g. CX33, 4 vCPU / 8 GB RAM, ~€10.70/mo). Any K8s-ready provider works.
 
-#### Storage
-
-| Type | Size | Purpose |
-|------|------|---------|
-| Control plane disk | 20–40 GB | K3s + OS + kubelet images |
-| Model weights | ~40 GB | DeepSeek-Coder-33B-Instruct-AWQ (downloaded at runtime by vLLM) |
-
-No persistent volume needed — model is downloaded on pod startup from Hugging Face. For repeat deployments, cache weights on a PVC to avoid re-downloads.
-
 #### GPU (Vast.ai)
 
 | GPU | VRAM | Why |
@@ -74,38 +76,20 @@ No persistent volume needed — model is downloaded on pod startup from Hugging 
 | **RTX 4090** | 24 GB | Fits DeepSeek 33B AWQ (~19 GB) with room for KV cache |
 | RTX 6000 Ada | 48 GB | Overkill but works |
 
-**Provisioning**: Rent a Vast.ai instance, SSH in, and run a bootstrap script that installs the K3s agent and joins the cluster via public IP:
+#### Vast.ai template ports
 
-```bash
-export K3S_URL=https://<control-plane-public-ip>:6443
-export K3S_TOKEN=<node-token>
-curl -sfL https://get.k3s.io | K3S_URL=$K3S_URL K3S_TOKEN=$K3S_TOKEN sh -
-```
-
-The node appears in the cluster with `cloud=vast` and `gpu-type=rtx4090` labels. Pods are scheduled to it via `nodeSelector`.
+| Port | Purpose |
+|------|---------|
+| 8472 | Flannel VXLAN (cross-node pod networking) |
+| 10250 | Kubelet (kubectl exec, logs, port-forward) |
 
 #### Networking
 
 | Component | Requirement |
 |-----------|-------------|
-| Vast.ai → Control plane | Direct public IP connection (K3S_URL) |
-| Client → FastAPI | Ingress or NodePort on control plane |
-| Ports | 6443 (K3s API), 80/443 (FastAPI) |
-
-#### Software Stack
-
-| Component | Version | Notes |
-|-----------|---------|-------|
-| K3s | v1.32+ | Lightweight Kubernetes |
-| NVIDIA device plugin | latest | GPU scheduling on Vast.ai node |
-| FastAPI | latest | Custom reverse proxy to vLLM |
-| vLLM | latest | Inference engine |
-| Python | 3.11+ | FastAPI runtime |
-| CUDA | 12.x | On Vast.ai GPU image |
-
-#### Domain / DNS
-
-Optional — a hostname pointing to the control plane IP for accessing the FastAPI gateway.
+| K3s API (data plane) | Vast.ai → Hetzner via public IP, port 6443 open on Hetzner firewall |
+| Gateway → vLLM (data plane) | WireGuard tunnel (10.8.0.0/24), vLLM at 10.8.0.2:8000 |
+| Client → Gateway | `kubectl port-forward` via Hetzner CP |
 
 ### What alpha does NOT include
 
@@ -125,11 +109,26 @@ Optional — a hostname pointing to the control plane IP for accessing the FastA
 
 ---
 
-## Case β (beta) — Single Model, Improved (with llm-d)
+## Case β (beta) — Single Model, All on GPU Node
 
-Envoy AI Gateway → KServe + llm-d + EPP → vLLM on Vast.ai RTX 4090. Adds cache-aware routing, token metering, and rate limiting.
+Envoy AI Gateway → KServe + llm-d + EPP → vLLM on Vast.ai RTX 3090. All components co-located on the GPU node — no cross-node networking, no WireGuard tunnel. Includes TLS (Let's Encrypt via Cloudflare), CORS for NextChat frontend, and Envoy Gateway as the single routing layer.
 
-See [case_beta/README.md](./case_beta/README.md) for details.
+```
+Client → envoy-llm.yacodata.com:30080 (HTTPS)
+           ↓
+         Envoy Gateway proxy (GPU node, hostNetwork)
+           ↓
+         Envoy AI Gateway (InferencePool, token metering, rate limiting)
+           ↓
+         KServe LLMInferenceService "qwen-7b"
+           ├── llm-d Router (cache-aware)
+           ├── EPP Scheduler (prefix-cache + load-aware)
+           └── vLLM (Qwen/Qwen2.5-7B-Instruct, same node)
+```
+
+**Frontend**: [NextChat](https://github.com/chatgptnextweb/nextchat) served from CP node at `chat.yacodata.com`, calls Envoy Gateway directly from the browser (CORS configured via SecurityPolicy).
+
+See [case_beta/README.md](./case_beta/README.md) for full deployment.
 
 ---
 
@@ -149,6 +148,7 @@ See [case_gamma/README.md](./case_gamma/README.md) for details.
 | GPU provider bootstrap | [gpu_providers/](./gpu_providers/) | α β γ Ω |
 | Model image builder | [model-image/](./model-image/) | α β γ Ω |
 | Monitoring (Prometheus + Grafana + DCGM) | [monitoring/](./monitoring/) | β γ Ω |
+| NextChat frontend | [frontend/nextchat/](./frontend/nextchat/) | β |
 
 ---
 

@@ -1,7 +1,7 @@
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
-  name: deepseek-route
+  name: qwen-route
   namespace: beta
   labels:
     ai-gateway: "true"
@@ -23,6 +23,6 @@ spec:
               type: ReplacePrefixMatch
               replacePrefixMatch: /v1/
       backendRefs:
-        - name: deepseek-33b
+        - name: qwen-7b
           namespace: beta
           port: 8080

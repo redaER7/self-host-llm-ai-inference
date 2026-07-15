@@ -1,0 +1,32 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nextchat
+  namespace: frontend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nextchat
+  template:
+    metadata:
+      labels:
+        app: nextchat
+    spec:
+      containers:
+        - name: nextchat
+          image: yidadaa/chatgpt-next-web:latest
+          ports:
+            - containerPort: 3000
+          env:
+            - name: BASE_URL
+              value: "https://envoy-llm.yacodata.com:30080/v1"
+            - name: CUSTOM_MODELS
+              value: "qwen2.5-7b"
+          resources:
+            requests:
+              memory: 256Mi
+              cpu: 100m
+            limits:
+              memory: 512Mi
+              cpu: 500m

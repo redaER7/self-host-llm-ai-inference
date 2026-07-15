@@ -52,7 +52,7 @@ spec:
             - vllm.entrypoints.openai.api_server
           args:
             - --model
-            - TheBloke/DeepSeek-Coder-33B-Instruct-AWQ
+            - Qwen/Qwen2.5-7B-Instruct
             - --port
             - "8100"
             - --host
@@ -63,22 +63,22 @@ spec:
             - "4096"
             - --gpu-memory-utilization
             - "0.9"
-          ports:
-            - containerPort: 8100
-              hostPort: 8100
           env:
             - name: HF_TOKEN
               valueFrom:
                 secretKeyRef:
                   name: hf-token
                   key: token
+          ports:
+            - containerPort: 8100
+              hostPort: 8100
           resources:
             limits:
               nvidia.com/gpu: "1"
-              memory: "22Gi"
+              memory: "10Gi"
             requests:
               nvidia.com/gpu: "1"
-              memory: "18Gi"
+              memory: "6Gi"
           volumeMounts:
             - name: dshm
               mountPath: /dev/shm
@@ -91,4 +91,4 @@ spec:
             sizeLimit: "2Gi"
         - name: model-cache
           emptyDir:
-            sizeLimit: "5Gi"
+            sizeLimit: "15Gi"

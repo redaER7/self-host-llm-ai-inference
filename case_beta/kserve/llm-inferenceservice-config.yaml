@@ -20,10 +20,12 @@ spec:
         maxCacheCapacity: 10000
       timeout: 300s
   template:
+    imagePullSecrets:
+      - name: registry-credentials
     containers:
       - name: main
-        image: kserve-vllm-with-weights:latest
-        imagePullPolicy: IfNotPresent
+        image: docker-registry.yacodata.com/kserve-vllm-qwen:0.1
+        imagePullPolicy: Always
         args:
           - --model
-          - deepseek-ai/DeepSeek-Coder-33B-Instruct-AWQ
+          - Qwen/Qwen2.5-7B-Instruct

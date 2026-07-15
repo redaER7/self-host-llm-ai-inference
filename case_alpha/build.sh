@@ -1,7 +1,11 @@
+#!/bin/bash
+
 REPOSITORY="llm-gateway"
 REGISTRY="docker-registry.yacodata.com"
 AUTH=${REGISTRY_USER}:${REGISTRY_PASS}
 
+
+echo "${REGISTRY_PASS}" | docker login docker-registry.yacodata.com   -u "${REGISTRY_USER}" --password-stdin
 
 TAG=0.12
 

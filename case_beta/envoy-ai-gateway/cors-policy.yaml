@@ -1,0 +1,22 @@
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: SecurityPolicy
+metadata:
+  name: cors-policy
+  namespace: beta
+spec:
+  targetRef:
+    group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: qwen-route
+  cors:
+    allowOrigins:
+      - type: Regex
+        value: "https?://(localhost|chat\\.yacodata\\.com|.*\\.yacodata\\.com)(:\\d+)?"
+    allowMethods:
+      - POST
+      - OPTIONS
+      - GET
+    allowHeaders:
+      - Content-Type
+      - Authorization
+    maxAge: "86400"

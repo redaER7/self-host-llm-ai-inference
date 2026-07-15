@@ -1,33 +1,34 @@
 apiVersion: serving.kserve.io/v1alpha1
 kind: LLMInferenceService
 metadata:
-  name: deepseek-33b
+  name: qwen-7b
   namespace: beta
 spec:
   model:
-    name: deepseek-coder-33b
+    name: qwen2.5-7b
   replicas: 1
   baseRefs:
     - name: llm-d-vllm-template
   template:
+    hostNetwork: true
     containers:
       - name: main
         resources:
           limits:
             nvidia.com/gpu: "1"
-            memory: 32Gi
+            memory: 10Gi
           requests:
             nvidia.com/gpu: "1"
-            memory: 24Gi
+            memory: 6Gi
 
   router:
     scheduler: {}
     route: {}
     gateway: {}
   nodeSelector:
-    cloud: vast
+    node-role.kubernetes.io/gpu-node: "true"
   tolerations:
-    - key: "vast-ai"
+    - key: "gpu-node"
       operator: "Equal"
       value: "true"
       effect: "NoSchedule"

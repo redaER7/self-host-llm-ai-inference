@@ -15,11 +15,11 @@ FastAPI reverse proxy → vLLM on a Vast.ai GPU, with a WireGuard tunnel connect
                               │       │
                           WireGuard   │
                               │       │
-                              │ 10.8.0.2 (client)
+                              │ 10.8.0.4 (client)
                               │       │
                               │  vLLM (hostNetwork)
                               │       │
-                              │   GPU (RTX 4090)
+                               │   GPU (RTX 3090/4090)
                               └───────┴─────────────┘
 ```
 
@@ -30,14 +30,14 @@ FastAPI reverse proxy → vLLM on a Vast.ai GPU, with a WireGuard tunnel connect
 | FastAPI gateway | Hetzner CP | `hostNetwork: true`, reaches vLLM via WireGuard |
 | vLLM | Vast.ai GPU | `hostNetwork: true`, listens on host's WireGuard IP |
 | WireGuard | Hetzner (wg-easy) ↔ Vast.ai (client) | Data-plane tunnel, subnet 10.8.0.0/24 |
-| Client access | Local machine | `kubectl port-forward svc/llm-gateway 8080:8000` |
+| Client access | Local machine | `kubectl port-forward svc/llm-gateway 8080:8200` |
 
-Both pods use `hostNetwork: true` — the gateway connects to vLLM directly at the GPU node's WireGuard IP (`10.8.0.2:8000`), bypassing ClusterIP routing and avoiding cross-node VXLAN issues.
+Both pods use `hostNetwork: true` — the gateway connects to vLLM directly at the GPU node's WireGuard IP (`10.8.0.4:8100`), bypassing ClusterIP routing and avoiding cross-node VXLAN issues.
 
 ### WireGuard Notes
 
 - The K3s API uses the **public IP** (`K3S_URL=https://<hetzner-public>:6443`) because wg-easy runs in Docker and owns `10.8.0.1` — the host K3s server is not directly reachable on that IP.
-- The WireGuard tunnel only carries **data-plane** traffic (gateway → vLLM at `10.8.0.2:8000`), which is the latency-sensitive path.
+- The WireGuard tunnel only carries **data-plane** traffic (gateway → vLLM at `10.8.0.4:8100`), which is the latency-sensitive path.
 - `dnsPolicy: ClusterFirstWithHostNet` on both pods ensures CoreDNS still resolves service names despite host networking.
 
 ## Requirements
@@ -48,7 +48,6 @@ Both pods use `hostNetwork: true` — the gateway connects to vLLM directly at t
 |------|---------|
 | 8472 | Flannel VXLAN (required for pod networking) |
 | 10250 | Kubelet (required for kubectl exec, logs, port-forward) |
-| 8000 | vLLM HTTP API (when using NodePort; not needed with hostNetwork + WireGuard) |
 
 ### Hetzner Firewall
 
@@ -64,7 +63,7 @@ Both pods use `hostNetwork: true` — the gateway connects to vLLM directly at t
 |-----------|-------|
 | K3s v1.33+ | Lightweight Kubernetes |
 | NVIDIA device plugin | GPU scheduling on Vast.ai node |
-| Docker | For building the gateway image |
+| Docker | For building and pushing the gateway image |
 | CUDA 12.x | Pre-installed on Vast.ai GPU images |
 | WireGuard tools | On Vast.ai, for tunnel client |
 
@@ -75,6 +74,7 @@ Both pods use `hostNetwork: true` — the gateway connects to vLLM directly at t
 | `fastapi-gateway/` | FastAPI reverse proxy (Dockerfile + app code) |
 | `fastapi-deployment.yaml` | K8s Deployment + Service for the gateway (ClusterIP) |
 | `vllm-deployment.yaml` | K8s Deployment + Service + Namespace for vLLM |
+| `wireguard-setup.sh` | WireGuard client install + UFW rules for the GPU node |
 | `gpu_providers/vast-ai-bootstrap.sh` | K3s agent bootstrap for Vast.ai GPU instances |
 
 ## Model Weight Strategy
@@ -83,19 +83,19 @@ By default, vLLM downloads the model weights from Hugging Face at pod startup.
 
 | Strategy | Cold Start | Image Size | When to use |
 |----------|-----------|------------|-------------|
-| **HF download** (default) | 5–15 min | ~1 GB (python + vLLM) | First deployment, prototyping |
-| **Baked in Docker image** | ~10 s | ~20 GB (includes weights) | Hot start, frequent restarts |
+| **HF download** (default) | 1-2 min | ~1 GB (python + vLLM) | First deployment, prototyping |
+| **Baked in Docker image** | ~10 s | ~6 GB (includes weights) | Hot start, frequent restarts |
 
 ### Hugging Face download (default)
 
-The `vllm-deployment.yaml` references the model by name — vLLM downloads it at startup. A `HF_TOKEN` secret is needed for gated models. Weights are cached in an `emptyDir` volume under `/root/.cache/huggingface/`.
+The `vllm-deployment.yaml` references `Qwen/Qwen2.5-7B-Instruct` — vLLM downloads it at startup (~4 GB). A `HF_TOKEN` secret is included in the deployment for higher Hugging Face API rate limits (not required for this public model). Weights are cached in an `emptyDir` volume under `/root/.cache/huggingface/`.
 
 ### Bake weights into a custom vLLM image
 
 ```bash
 bash model-image/build.sh \
   --base vllm/vllm-openai:latest \
-  --model deepseek-ai/DeepSeek-Coder-33B-Instruct-AWQ \
+  --model Qwen/Qwen2.5-7B-Instruct \
   --tag vllm-with-weights:latest
 ```
 
@@ -126,107 +126,92 @@ export K3S_TOKEN=<node-token>
 bash gpu_providers/vast-ai-bootstrap.sh
 ```
 
-Verify the node joins:
+The script installs the K3s agent, NVIDIA container toolkit, and configures containerd.
+
+### 4. Label and taint the GPU node
+
+On the **control plane**, run:
 
 ```bash
-kubectl get nodes
+NODE_NAME=$(kubectl get nodes -l '!node-role.kubernetes.io/control-plane' -o name | sed 's|node/||')
+kubectl label node "$NODE_NAME" \
+  node-role.kubernetes.io/gpu-node=true \
+  role=gpu
+kubectl taint node "$NODE_NAME" gpu-node=true:NoSchedule
 ```
 
-Expected: `albab-server-0` (control-plane) and `vast-*` (gpu-node), both Ready.
-
-### 4. Apply NVIDIA device plugin
+### 5. Apply NVIDIA device plugin
 
 ```bash
 bash k8s_control_plane/apply-gpu-manifests.sh
 ```
 
-### 5. Set up WireGuard tunnel
+### 6. Set up WireGuard tunnel
 
-On the **Vast.ai** instance, install and configure the WireGuard client:
-
-```bash
-sudo apt update
-sudo apt install -y wireguard-tools resolvconf
-sudo modprobe wireguard
-sudo systemctl enable resolvconf
-sudo systemctl start resolvconf
-```
-
-Create `/etc/wireguard/wg0.conf` with the client config from the wg-easy admin UI:
-
-```ini
-[Interface]
-PrivateKey = <client-private-key>
-Address = 10.8.0.2/24
-DNS = 10.8.0.1
-
-[Peer]
-PublicKey = <server-public-key>
-PresharedKey = <preshared-key>
-Endpoint = <hetzner-public-ip>:51820
-AllowedIPs = 10.8.0.0/24
-PersistentKeepalive = 25
-```
-
-Start the tunnel:
+On the **Vast.ai** instance, run the WireGuard setup script:
 
 ```bash
-sudo systemctl enable wg-quick@wg0
-sudo systemctl start wg-quick@wg0
+bash case_alpha/wireguard-setup.sh
 ```
 
-Allow traffic from the tunnel to reach vLLM on port 8000:
+Before running, place your exported `wg0.conf` from the wg-easy admin UI at `/etc/wireguard/wg0.conf`. The script installs WireGuard tools, starts the tunnel, and configures UFW with the necessary rules.
+
+Verify the tunnel is up:
 
 ```bash
-sudo ufw allow from 10.8.0.0/24 to any port 8000 proto tcp
+ping -c 3 10.8.0.1
 ```
 
-### 6. Create the Hugging Face token secret
+### 7. Create registry credentials secret
 
 ```bash
 kubectl create namespace alpha
-kubectl -n alpha create secret generic hf-token --from-literal=token=<your-hf-token>
+kubectl -n alpha create secret docker-registry registry-credentials \
+  --docker-server=docker-registry.yacodata.com \
+  --docker-username="${REGISTRY_USER}" \
+  --docker-password="${REGISTRY_PASS}"
 ```
 
-Skip this step if the model is public (e.g., Qwen/Qwen2.5-0.5B-Instruct).
-
-### 7. Build and deploy the gateway image
+### 8. Build and push the gateway image
 
 ```bash
-docker build -t llm-gateway:latest case_alpha/fastapi-gateway
-
-# If using a registry (multi-node):
-# docker tag llm-gateway:latest <registry>/llm-gateway:latest
-# docker push <registry>/llm-gateway:latest
+docker build -t docker-registry.yacodata.com/llm-gateway:0.1 \
+  case_alpha/fastapi-gateway/
+docker tag docker-registry.yacodata.com/llm-gateway:0.1 \
+  docker-registry.yacodata.com/llm-gateway:latest
+docker push docker-registry.yacodata.com/llm-gateway:0.1
+docker push docker-registry.yacodata.com/llm-gateway:latest
 ```
 
-### 8. Deploy vLLM
+### 9. Deploy vLLM
 
 ```bash
 kubectl apply -f case_alpha/vllm-deployment.yaml
 kubectl -n alpha get pods -w
 ```
 
-Wait for the vLLM pod to reach `Running`. Model download may take a few minutes.
+Wait for the vLLM pod to reach `Running`. Model download (~4 GB) may take 1-2 minutes.
 
-### 9. Deploy FastAPI gateway
+### 10. Deploy FastAPI gateway
 
 ```bash
 kubectl apply -f case_alpha/fastapi-deployment.yaml
 ```
 
-### 10. Test via port-forward
+### 11. Test via port-forward
+
+The API is kept local — accessed via `kubectl port-forward`. Envoy AI Gateway will be added in case beta for external exposure.
 
 ```bash
-kubectl -n alpha port-forward svc/llm-gateway 8080:8000 &
+kubectl -n alpha port-forward svc/llm-gateway 8080:8200 &
 
-curl -X POST http://localhost:8080/v1/chat/completions \
+curl -s -X POST http://localhost:8080/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "Qwen/Qwen2.5-0.5B-Instruct",
-    "messages": [{"role": "user", "content": "Say hello in Python"}],
+    "model": "Qwen/Qwen2.5-7B-Instruct",
+    "messages": [{"role": "user", "content": "Write hello world in Python"}],
     "max_tokens": 50
-  }'
+  }' | jq -r '.choices[0].message.content' | sed 's/Ġ/ /g; s/Ċ/\n/g'
 ```
 
 ## When to use alpha
