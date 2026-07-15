@@ -1,0 +1,19 @@
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: EnvoyProxy
+metadata:
+  name: gpu-node-proxy
+  namespace: envoy-ai-gateway-system
+spec:
+  provider:
+    type: Kubernetes
+    kubernetes:
+      envoyDeployment:
+        replicas: 1
+        pod:
+          nodeSelector:
+            node-role.kubernetes.io/gpu-node: "true"
+          tolerations:
+            - key: "gpu-node"
+              operator: "Equal"
+              value: "true"
+              effect: "NoSchedule"

@@ -5,6 +5,11 @@ metadata:
   namespace: envoy-ai-gateway-system
 spec:
   gatewayClassName: envoy
+  infrastructure:
+    parametersRef:
+      group: gateway.envoyproxy.io
+      kind: EnvoyProxy
+      name: gpu-node-proxy
   listeners:
     - name: https
       protocol: HTTPS

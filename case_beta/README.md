@@ -65,10 +65,9 @@ Weights are baked into the Docker image at build time — no download at pod sta
 | Component | Version | Notes |
 |-----------|---------|-------|
 | cert-manager | 1.17+ | Webhook certificates + Let's Encrypt (DNS-01 Cloudflare) |
-| Gateway API CRDs | v1.3.0+ | Standard K8s gateway resources |
-| GIE CRDs | v0.3.0+ | InferencePool, InferenceModel |
-| Envoy Gateway | v1.5+ | Gateway API provider; proxy pods scheduled on GPU node |
-| Envoy AI Gateway | latest | AI routing, token metering, rate limiting |
+| AI Gateway CRDs (Helm) | v1.0.0 | InferencePool, InferenceModel |
+| Envoy Gateway | v1.8+ | Gateway API provider; proxy pods scheduled on GPU node |
+| AI Gateway Controller (Helm) | v1.0.0 | AI routing, token metering, rate limiting |
 | LWS Operator | v0.6.2+ | LeaderWorkerSet (KServe dependency) |
 | KServe | v0.18+ | LLMInferenceService CRD (llm-d mode) |
 
@@ -78,25 +77,24 @@ Weights are baked into the Docker image at build time — no download at pod sta
 
 1. **K3s** — Hetzner CP + Vast.ai GPU agent (see [k3s-install.sh](../k8s_control_plane/k3s-install.sh) and [vast-ai-bootstrap.sh](../gpu_providers/vast-ai-bootstrap.sh))
 2. **cert-manager** — webhook certificates
-3. **Gateway API CRDs** — standard K8s gateway resources
-4. **GIE CRDs** — InferencePool, InferenceModel (must precede Envoy Gateway)
-5. **Envoy Gateway** — with custom config to schedule proxy pods on GPU node
-6. **Envoy AI Gateway** — AI routing, token metering, rate limiting
-7. **LWS Operator** — LeaderWorkerSet (needed by KServe)
-8. **KServe** — LLMInferenceService CRD (llm-d mode)
-9. **Monitoring** — Prometheus + Grafana + DCGM (shared stack, see [monitoring/](../monitoring/))
-10. **Cloudflare DNS-01 secret + ClusterIssuer + Certificate** — Let's Encrypt TLS for envoy-llm.yacodata.com
-11. **Create Gateway resource** — HTTPS listener referencing the cert-manager certificate
-12. **Build model image** — bake Qwen weights into serving image
-13. **Create secrets** — registry credentials and HF token
-14. **Deploy LLMInferenceServiceConfig + LLMInferenceService**
-15. **Apply InferencePool + InferenceModel** — Envoy AI Gateway pool config
-16. **Apply HTTPRoute** — attach route to Gateway
-17. **Expose Envoy Gateway** — patch service to NodePort
-18. **Configure Vast.ai port forwarding** — map instance port → NodePort
-19. **Apply CORS policy** — allow NextChat origin to call Envoy Gateway
-20. **Set DNS A record** — envoy-llm.yacodata.com → Vast.ai public IP
-21. **Deploy NextChat** — frontend UI on CP node (see [frontend/nextchat](../frontend/nextchat))
+3. **AI Gateway CRDs (Helm)** — InferencePool, InferenceModel
+4. **Envoy Gateway (Helm)** — installs Gateway API + Envoy CRDs, controller; then apply EnvoyProxy + Gateway
+5. **AI Gateway Controller (Helm)** — AI routing, token metering, rate limiting
+6. **LWS Operator** — LeaderWorkerSet (needed by KServe)
+7. **KServe** — LLMInferenceService CRD (llm-d mode)
+8. **Monitoring** — Prometheus + Grafana + DCGM (shared stack, see [monitoring/](../monitoring/))
+9. **Cloudflare DNS-01 secret + ClusterIssuer + Certificate** — Let's Encrypt TLS for envoy-llm.yacodata.com
+10. **Create Gateway resource** — HTTPS listener referencing the cert-manager certificate
+11. **Build model image** — bake Qwen weights into serving image
+12. **Create secrets** — registry credentials and HF token
+13. **Deploy LLMInferenceServiceConfig + LLMInferenceService**
+14. **Apply InferencePool + InferenceModel** — Envoy AI Gateway pool config
+15. **Apply HTTPRoute** — attach route to Gateway
+16. **Expose Envoy Gateway** — patch service to NodePort
+17. **Configure Vast.ai port forwarding** — map instance port → NodePort
+18. **Apply CORS policy** — allow NextChat origin to call Envoy Gateway
+19. **Set DNS A record** — envoy-llm.yacodata.com → Vast.ai public IP
+20. **Deploy NextChat** — frontend UI on CP node (see [frontend/nextchat](../frontend/nextchat))
 
 ---
 
@@ -106,6 +104,7 @@ Weights are baked into the Docker image at build time — no download at pod sta
 |------------|---------|
 | `envoy-ai-gateway/gateway.yaml` | Gateway resource (HTTPS listener, TLS termination) |
 | `envoy-ai-gateway/certificate.yaml` | ClusterIssuer + Certificate (Let's Encrypt DNS-01 via Cloudflare) |
+| `envoy-ai-gateway/envoyproxy.yaml` | EnvoyProxy (GPU node scheduling for Envoy proxy pods) |
 | `envoy-ai-gateway/inferencepool.yaml` | InferencePool + InferenceModel |
 | `envoy-ai-gateway/aigatewayroute.yaml` | HTTPRoute (route `/v1/` → KServe backend) |
 | `envoy-ai-gateway/cors-policy.yaml` | SecurityPolicy (CORS for NextChat origin) |
@@ -136,68 +135,54 @@ helm install cert-manager jetstack/cert-manager --namespace cert-manager --creat
   --set crds.enabled=true
 ```
 
-### 4. Install Gateway API CRDs
+### 4. Install AI Gateway CRDs
 
 ```bash
-kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.3.0/standard-install.yaml
+helm upgrade -i aieg-crd oci://docker.io/envoyproxy/ai-gateway-crds-helm \
+  --version v1.0.0 \
+  --namespace envoy-ai-gateway-system \
+  --create-namespace
 ```
 
-### 5. Install GIE CRDs
+### 5. Install Envoy Gateway with GPU node scheduling
+
+Envoy Gateway v1.8 ships with Gateway API CRDs and Envoy Gateway CRDs bundled. A single command installs everything:
 
 ```bash
-kubectl apply -f https://github.com/envoyproxy/ai-gateway/releases/download/latest/crds.yaml
-```
-
-### 6. Install Envoy Gateway with GPU node scheduling
-
-```bash
-helm install eg oci://docker.io/envoyproxy/gateway-helm --version v1.5.0 \
+helm install eg oci://docker.io/envoyproxy/gateway-helm --version v1.8.2 \
   -n envoy-gateway-system --create-namespace
+
+kubectl wait --timeout=5m -n envoy-gateway-system deployment/envoy-gateway --for=condition=Available
 ```
 
-Create an `EnvoyGateway` resource to schedule proxy pods on the GPU node:
+Create an `EnvoyProxy` resource to schedule proxy pods on the GPU node, then apply the Gateway (which references it via `infrastructure.parametersRef`):
 
 ```bash
-kubectl apply -f - <<EOF
-apiVersion: gateway.envoyproxy.io/v1alpha1
-kind: EnvoyGateway
-metadata:
-  name: envoy-gateway-config
-  namespace: envoy-gateway-system
-spec:
-  provider:
-    type: Kubernetes
-    kubernetes:
-      envoyDeployment:
-        replicas: 1
-        pod:
-          nodeSelector:
-            node-role.kubernetes.io/gpu-node: "true"
-          tolerations:
-            - key: "gpu-node"
-              operator: "Equal"
-              value: "true"
-              effect: "NoSchedule"
-EOF
+kubectl apply -f envoy-ai-gateway/envoyproxy.yaml
+kubectl apply -f envoy-ai-gateway/gateway.yaml
 ```
 
 This ensures Envoy proxy pods land on the same node as the KServe vLLM workload — no cross-node networking needed.
 
-### 7. Install Envoy AI Gateway
+### 6. Install AI Gateway Controller
 
 ```bash
-helm install aig oci://docker.io/envoyproxy/ai-gateway-helm --version latest \
-  -n envoy-ai-gateway-system --create-namespace
+helm upgrade -i aieg oci://docker.io/envoyproxy/ai-gateway-helm \
+  --version v1.0.0 \
+  --namespace envoy-ai-gateway-system \
+  --create-namespace
+
+kubectl wait --timeout=2m -n envoy-ai-gateway-system deployment/ai-gateway-controller --for=condition=Available
 ```
 
-### 8. Install LWS Operator
+### 7. Install LWS Operator
 
 ```bash
 helm install lws oci://registry.k8s.io/lws/charts/lws --version v0.6.2 \
   --namespace lws-system --create-namespace
 ```
 
-### 9. Install KServe (llm-d mode)
+### 8. Install KServe (llm-d mode)
 
 ```bash
 helm install kserve oci://ghcr.io/kserve/charts/kserve --version v0.18.0 \
@@ -205,7 +190,7 @@ helm install kserve oci://ghcr.io/kserve/charts/kserve --version v0.18.0 \
   --set llm-d.enabled=true
 ```
 
-### 10. Create Cloudflare DNS-01 secret, ClusterIssuer, and Certificate
+### 9. Create Cloudflare DNS-01 secret, ClusterIssuer, and Certificate
 
 Create the Cloudflare API token secret (requires DNS:Edit permission for yacodata.com):
 
@@ -229,15 +214,17 @@ kubectl get certificate envoy-tls-cert -n envoy-ai-gateway-system -w
 
 The DNS-01 challenge creates a TXT record in Cloudflare automatically. Once the certificate is Ready, proceed.
 
-### 11. Create the Gateway resource
+### 10. Create the Gateway resource
+
+The Gateway was already applied in step 5 (alongside the EnvoyProxy). This step is a no-op if you already ran both commands there.
 
 ```bash
 kubectl apply -f envoy-ai-gateway/gateway.yaml
 ```
 
-This creates an HTTPS listener on port 443, terminating TLS with the cert-manager-issued certificate for `envoy-llm.yacodata.com`.
+This creates an HTTPS listener on port 443, terminating TLS with the cert-manager-issued certificate for `envoy-llm.yacodata.com`. The Gateway references the `gpu-node-proxy` EnvoyProxy via `spec.infrastructure.parametersRef` for GPU node scheduling.
 
-### 12. Install monitoring stack
+### 11. Install monitoring stack
 
 Prometheus + Grafana + DCGM exporter for GPU metrics.
 
@@ -252,7 +239,7 @@ kubectl apply -f ../monitoring/dcgm-exporter.yaml
 
 See [monitoring/README.md](../monitoring/README.md) for dashboard setup and Grafana access.
 
-### 13. Build the model image
+### 12. Build the model image
 
 Model weights are baked into the serving image for fast cold start (~10 s).
 
@@ -269,7 +256,7 @@ Push to the registry so the GPU node can pull it:
 docker push docker-registry.yacodata.com/kserve-vllm-qwen:0.1
 ```
 
-### 14. Create registry and HF secrets
+### 13. Create registry and HF secrets
 
 ```bash
 kubectl create secret docker-registry registry-credentials \
@@ -283,25 +270,25 @@ kubectl create secret generic hf-token \
   --from-literal=token=<hf-token>
 ```
 
-### 15. Create LLMInferenceServiceConfig template
+### 14. Create LLMInferenceServiceConfig template
 
 ```bash
 kubectl apply -f kserve/llm-inferenceservice-config.yaml
 ```
 
-### 16. Deploy LLMInferenceService
+### 15. Deploy LLMInferenceService
 
 ```bash
 kubectl apply -f kserve/llm-inferenceservice.yaml
 ```
 
-### 17. Apply InferencePool + InferenceModel
+### 16. Apply InferencePool + InferenceModel
 
 ```bash
 kubectl apply -f envoy-ai-gateway/inferencepool.yaml
 ```
 
-### 18. Apply HTTPRoute
+### 17. Apply HTTPRoute
 
 The HTTPRoute attaches to the `ai-gateway` Gateway in `envoy-ai-gateway-system` and routes `/v1/` traffic to the KServe service.
 
@@ -309,7 +296,7 @@ The HTTPRoute attaches to the `ai-gateway` Gateway in `envoy-ai-gateway-system` 
 kubectl apply -f envoy-ai-gateway/aigatewayroute.yaml
 ```
 
-### 19. Expose Envoy Gateway via NodePort
+### 18. Expose Envoy Gateway via NodePort
 
 Envoy Gateway auto-creates a port for each Gateway listener. The HTTPS listener on port 443 appears as the first port in the service.
 
@@ -319,7 +306,7 @@ kubectl patch service envoy-gateway-proxy -n envoy-gateway-system \
   -p='[{"op":"replace","path":"/spec/type","value":"NodePort"},{"op":"add","path":"/spec/ports/-","value":{"name":"https","port":443,"targetPort":443,"nodePort":30080,"protocol":"TCP"}}]'
 ```
 
-### 20. Apply CORS policy
+### 19. Apply CORS policy
 
 Allows NextChat (served from `chat.yacodata.com` or localhost) to make browser API calls to Envoy Gateway:
 
@@ -327,7 +314,7 @@ Allows NextChat (served from `chat.yacodata.com` or localhost) to make browser A
 kubectl apply -f envoy-ai-gateway/cors-policy.yaml
 ```
 
-### 21. Configure Vast.ai port forwarding
+### 20. Configure Vast.ai port forwarding
 
 In the Vast.ai instance page, add a port mapping:
 - **Port**: `30080`
@@ -335,7 +322,7 @@ In the Vast.ai instance page, add a port mapping:
 
 This maps `https://<vast-public-ip>:<mapped-port>` → Envoy Gateway HTTPS on the GPU node.
 
-### 22. Set DNS A records
+### 21. Set DNS A records
 
 | Record | Type | Value | Purpose |
 |--------|------|-------|---------|
@@ -344,7 +331,7 @@ This maps `https://<vast-public-ip>:<mapped-port>` → Envoy Gateway HTTPS on th
 
 The Let's Encrypt DNS-01 challenge uses Cloudflare API tokens, so the A record is only needed for TLS SNI at request time, not for certificate issuance.
 
-### 23. Deploy NextChat frontend
+### 22. Deploy NextChat frontend
 
 NextChat is a static SPA served from the CP node. See [frontend/nextchat/README.md](../frontend/nextchat/README.md) for deployment.
 
@@ -357,7 +344,7 @@ Access at `http://<hetzner-cp-ip>:3080` and configure:
 - **Endpoint**: `https://envoy-llm.yacodata.com:30080/v1`
 - **Model**: `qwen2.5-7b`
 
-### 24. Test
+### 23. Test
 
 Using the domain (requires DNS A record):
 
