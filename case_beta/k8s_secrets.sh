@@ -33,12 +33,5 @@ kubectl create secret generic hf-token \
   --from-literal=token="${HF_TOKEN:?Set HF_TOKEN}" \
   --dry-run=client -o yaml | kubectl apply -f -
 
-echo "[4/4] TLS certificate (chat.yacodata.com)"
-kubectl apply -f "${SCRIPT_DIR}/../frontend/nextchat/certificate.yaml"
-
-echo ""
-echo "Waiting for frontend certificate to be ready..."
-kubectl wait --timeout=5m -n frontend certificate/frontend-tls-cert --for=condition=Ready
-
 echo ""
 echo "All secrets created."

@@ -33,6 +33,9 @@ echo ""
 echo "Waiting for certificate to be ready..."
 kubectl wait --timeout=5m -n envoy-ai-gateway-system certificate/envoy-tls-cert --for=condition=Ready
 
+echo "Creating TLS certificate (chat.yacodata.com)"
+kubectl apply -f "${SCRIPT_DIR}/../frontend/nextchat/certificate.yaml"
+kubectl wait --timeout=5m -n frontend certificate/frontend-tls-cert --for=condition=Ready
 
 echo "=== 3. AI Gateway CRDs ==="
 helm upgrade -i aieg-crd oci://docker.io/envoyproxy/ai-gateway-crds-helm \
@@ -106,4 +109,4 @@ echo "  1. Configure Vast.ai port forwarding: instance port -> 30080"
 echo "  2. Set DNS A records:"
 echo "     - envoy-llm.yacodata.com -> <vast-public-ip>"
 echo "     - chat.yacodata.com      -> <hetzner-cp-ip>"
-echo "  3. Access NextChat at http://<hetzner-cp-ip>:3080"
+echo "  3. Access NextChat at https://<hetzner-cp-ip>:3080"
