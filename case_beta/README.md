@@ -64,7 +64,7 @@ Weights are baked into the Docker image at build time — no download at pod sta
 
 | Component | Version | Notes |
 |-----------|---------|-------|
-| cert-manager | 1.17+ | Webhook certificates + Let's Encrypt (DNS-01 Cloudflare) |
+| cert-manager | 1.18+ | Webhook certificates + Let's Encrypt (DNS-01 Cloudflare) |
 | AI Gateway CRDs (Helm) | v1.0.0 | InferencePool, InferenceModel |
 | Envoy Gateway | v1.8+ | Gateway API provider; proxy pods scheduled on GPU node |
 | AI Gateway Controller (Helm) | v1.0.0 | AI routing, token metering, rate limiting |
@@ -78,7 +78,7 @@ Weights are baked into the Docker image at build time — no download at pod sta
 1. **K3s** — Hetzner CP + Vast.ai GPU agent (see [k3s-install.sh](../k8s_control_plane/k3s-install.sh) and [vast-ai-bootstrap.sh](../gpu_providers/vast-ai-bootstrap.sh))
 2. **cert-manager** — webhook certificates
 3. **AI Gateway CRDs (Helm)** — InferencePool, InferenceModel
-4. **Envoy Gateway (Helm)** — installs Gateway API + Envoy CRDs, controller; then apply EnvoyProxy + Gateway
+4. **Envoy Gateway (Helm)** — installs Gateway API + Envoy CRDs, controller; then apply GatewayClass + EnvoyProxy + Gateway
 5. **AI Gateway Controller (Helm)** — AI routing, token metering, rate limiting
 6. **LWS Operator** — LeaderWorkerSet (needed by KServe)
 7. **KServe** — LLMInferenceService CRD (llm-d mode)
@@ -102,7 +102,10 @@ Weights are baked into the Docker image at build time — no download at pod sta
 
 | File / Dir | Purpose |
 |------------|---------|
-| `envoy-ai-gateway/gateway.yaml` | Gateway resource (HTTPS listener, TLS termination) |
+| `k8s_secrets.sh` | Create all secrets + TLS certificate (run first) |
+| `k8s_deploy.sh` | Deploy all infrastructure + workloads (run after secrets) |
+| `envoy-ai-gateway/gatewayclass.yaml` | GatewayClass (references Envoy Gateway controller) |
+| `envoy-ai-gateway/gateway.yaml` | Gateway resource (HTTPS listener, TLS termination, KServe label) |
 | `envoy-ai-gateway/certificate.yaml` | ClusterIssuer + Certificate (Let's Encrypt DNS-01 via Cloudflare) |
 | `envoy-ai-gateway/envoyproxy.yaml` | EnvoyProxy (GPU node scheduling for Envoy proxy pods) |
 | `envoy-ai-gateway/inferencepool.yaml` | InferencePool + InferenceModel |
@@ -110,6 +113,26 @@ Weights are baked into the Docker image at build time — no download at pod sta
 | `envoy-ai-gateway/cors-policy.yaml` | SecurityPolicy (CORS for NextChat origin) |
 | `kserve/` | KServe LLMInferenceServiceConfig + LLMInferenceService |
 | `epp-scheduler/` | EPP scorer weights reference |
+
+---
+
+## Quick Start
+
+```bash
+# 1. Set secrets as environment variables
+export CLOUDFLARE_API_TOKEN="your-cloudflare-token"
+export REGISTRY_USERNAME="your-registry-user"
+export REGISTRY_PASSWORD="your-registry-password"
+export HF_TOKEN="your-hf-token"
+
+# 2. Create all secrets
+bash k8s_secrets.sh
+
+# 3. Deploy everything
+bash k8s_deploy.sh
+```
+
+Then configure Vast.ai port forwarding and DNS (see [Manual Deployment](#manual-deployment) for details).
 
 ---
 
@@ -131,7 +154,7 @@ kubectl create namespace beta
 ```bash
 helm repo add jetstack https://charts.jetstack.io --force-update
 helm install cert-manager jetstack/cert-manager --namespace cert-manager --create-namespace \
-  --version v1.17.1 \
+  --version v1.18.0 \
   --set crds.enabled=true
 ```
 
@@ -155,14 +178,19 @@ helm install eg oci://docker.io/envoyproxy/gateway-helm --version v1.8.2 \
 kubectl wait --timeout=5m -n envoy-gateway-system deployment/envoy-gateway --for=condition=Available
 ```
 
-Create an `EnvoyProxy` resource to schedule proxy pods on the GPU node, then apply the Gateway (which references it via `infrastructure.parametersRef`):
+Create the GatewayClass, an `EnvoyProxy` resource to schedule proxy pods on the GPU node, then apply the Gateway (which references both):
 
 ```bash
+kubectl apply -f envoy-ai-gateway/gatewayclass.yaml
 kubectl apply -f envoy-ai-gateway/envoyproxy.yaml
 kubectl apply -f envoy-ai-gateway/gateway.yaml
 ```
 
-This ensures Envoy proxy pods land on the same node as the KServe vLLM workload — no cross-node networking needed.
+This ensures:
+- A `GatewayClass` named `envoy` references the Envoy Gateway controller
+- Envoy proxy pods land on the GPU node (via `EnvoyProxy` nodeSelector + tolerations)
+- The Gateway is discoverable by KServe via the `serving.kserve.io/gateway` label
+- Cross-namespace HTTPRoutes are allowed (`allowedRoutes.namespaces.from: All`)
 
 ### 6. Install AI Gateway Controller
 
@@ -182,12 +210,10 @@ helm install lws oci://registry.k8s.io/lws/charts/lws --version v0.6.2 \
   --namespace lws-system --create-namespace
 ```
 
-### 8. Install KServe (llm-d mode)
+### 8. Install KServe (llm-d mode) — monolithic
 
 ```bash
-helm install kserve oci://ghcr.io/kserve/charts/kserve --version v0.18.0 \
-  -n kserve --create-namespace \
-  --set llm-d.enabled=true
+kubectl apply --server-side -f https://github.com/kserve/kserve/releases/download/v0.18.0/kserve.yaml
 ```
 
 ### 9. Create Cloudflare DNS-01 secret, ClusterIssuer, and Certificate
@@ -222,7 +248,7 @@ The Gateway was already applied in step 5 (alongside the EnvoyProxy). This step 
 kubectl apply -f envoy-ai-gateway/gateway.yaml
 ```
 
-This creates an HTTPS listener on port 443, terminating TLS with the cert-manager-issued certificate for `envoy-llm.yacodata.com`. The Gateway references the `gpu-node-proxy` EnvoyProxy via `spec.infrastructure.parametersRef` for GPU node scheduling.
+This creates an HTTPS listener on port 443, terminating TLS with the cert-manager-issued certificate for `envoy-llm.yacodata.com`. The Gateway references the `gpu-node-proxy` EnvoyProxy via `spec.infrastructure.parametersRef` for GPU node scheduling, and is labeled `serving.kserve.io/gateway: kserve-ingress-gateway` for KServe discovery.
 
 ### 11. Install monitoring stack
 
@@ -245,7 +271,7 @@ Model weights are baked into the serving image for fast cold start (~10 s).
 
 ```bash
 bash model-image/build.sh \
-  --base quay.io/kserve/vllm:latest \
+  --base vllm/vllm-openai:latest \
   --model Qwen/Qwen2.5-7B-Instruct \
   --tag docker-registry.yacodata.com/kserve-vllm-qwen:0.1
 ```
