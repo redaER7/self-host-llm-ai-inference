@@ -9,7 +9,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 echo "=== Secrets ==="
 
 echo "Ensuring namespaces exist..."
-for ns in cert-manager beta envoy-ai-gateway-system envoy-gateway-system lws-system kserve; do
+for ns in cert-manager beta envoy-ai-gateway-system envoy-gateway-system lws-system kserve frontend; do
   kubectl create namespace "$ns" --dry-run=client -o yaml | kubectl apply -f -
 done
 
@@ -32,6 +32,13 @@ kubectl create secret generic hf-token \
   --namespace beta \
   --from-literal=token="${HF_TOKEN:?Set HF_TOKEN}" \
   --dry-run=client -o yaml | kubectl apply -f -
+
+echo "[4/4] TLS certificate (chat.yacodata.com)"
+kubectl apply -f "${SCRIPT_DIR}/../frontend/nextchat/certificate.yaml"
+
+echo ""
+echo "Waiting for frontend certificate to be ready..."
+kubectl wait --timeout=5m -n frontend certificate/frontend-tls-cert --for=condition=Ready
 
 echo ""
 echo "All secrets created."

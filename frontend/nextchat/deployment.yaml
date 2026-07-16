@@ -23,6 +23,14 @@ spec:
               value: "https://envoy-llm.yacodata.com:30080/v1"
             - name: CUSTOM_MODELS
               value: "qwen2.5-7b"
+            - name: TLS_CERT
+              value: "/certs/tls.crt"
+            - name: TLS_KEY
+              value: "/certs/tls.key"
+          volumeMounts:
+            - name: tls-cert
+              mountPath: /certs
+              readOnly: true
           resources:
             requests:
               memory: 256Mi
@@ -30,3 +38,7 @@ spec:
             limits:
               memory: 512Mi
               cpu: 500m
+      volumes:
+        - name: tls-cert
+          secret:
+            secretName: frontend-tls-cert

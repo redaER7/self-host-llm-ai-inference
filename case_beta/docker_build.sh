@@ -17,6 +17,8 @@ bash "${SCRIPT_DIR}/../model-image/build.sh" \
   --tag docker-registry.yacodata.com/kserve-vllm-qwen:0.1
 
 echo "Pushing to registry..."
+docker tag docker-registry.yacodata.com/kserve-vllm-qwen:0.1 docker-registry.yacodata.com/kserve-vllm-qwen:latest
 docker push docker-registry.yacodata.com/kserve-vllm-qwen:0.1
+docker push docker-registry.yacodata.com/kserve-vllm-qwen:latest
 
 echo "Done."

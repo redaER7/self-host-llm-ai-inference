@@ -1,0 +1,12 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: frontend-tls-cert
+  namespace: frontend
+spec:
+  secretName: frontend-tls-cert
+  dnsNames:
+    - chat.yacodata.com
+  issuerRef:
+    name: letsencrypt-issuer
+    kind: ClusterIssuer
