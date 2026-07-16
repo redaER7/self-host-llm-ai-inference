@@ -1,22 +1,27 @@
-apiVersion: inference.envoy.ai/v1alpha1
+apiVersion: inference.networking.k8s.io/v1
 kind: InferencePool
 metadata:
   name: qwen-pool
   namespace: beta
 spec:
   selector:
-    app.kubernetes.io/name: qwen-7b
-  podSelector:
     matchLabels:
       app.kubernetes.io/name: qwen-7b
-  failurePolicy: Fail
+  targetPorts:
+    - number: 8080
+  extensionRef:
+    name: qwen-pool-epp
+    port:
+      number: 9002
+    failureMode: FailOpen
 ---
-apiVersion: inference.envoy.ai/v1alpha1
+apiVersion: inference.networking.x-k8s.io/v1alpha2
 kind: InferenceModel
 metadata:
   name: qwen2.5-7b
   namespace: beta
 spec:
   modelName: qwen2.5-7b
+  criticality: Critical
   poolRef:
     name: qwen-pool
