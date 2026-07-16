@@ -8,21 +8,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 echo "=== Secrets ==="
 
-# create namespaces if not already created
-
-if ! kubectl get ns cert-manager &> /dev/null; then
-  kubectl create ns cert-manager
-fi
-
-if ! kubectl get ns beta &> /dev/null; then
-  kubectl create ns beta
-fi
-if kubectl get ns envoy-ai-gateway-system &> /dev/null; then
-  kubectl create ns envoy-ai-gateway-system
-fi
-if kubectl get ns envoy-gateway-system &> /dev/null; then
-  kubectl create ns envoy-gateway-system
-fi
+echo "Ensuring namespaces exist..."
+for ns in cert-manager beta envoy-ai-gateway-system envoy-gateway-system lws-system kserve; do
+  kubectl create namespace "$ns" --dry-run=client -o yaml | kubectl apply -f -
+done
 
 echo "[1/4] Cloudflare API token (cert-manager DNS-01)"
 kubectl create secret generic cloudflare-api-token \
@@ -31,7 +20,6 @@ kubectl create secret generic cloudflare-api-token \
   --dry-run=client -o yaml | kubectl apply -f -
 
 echo "[2/4] Registry credentials (model image pull)"
-kubectl create namespace beta --dry-run=client -o yaml | kubectl apply -f -
 kubectl create secret docker-registry registry-credentials \
   --namespace beta \
   --docker-server=docker-registry.yacodata.com \

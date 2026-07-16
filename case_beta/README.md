@@ -104,6 +104,7 @@ Weights are baked into the Docker image at build time — no download at pod sta
 |------------|---------|
 | `k8s_secrets.sh` | Create all secrets + TLS certificate (run first) |
 | `k8s_deploy.sh` | Deploy all infrastructure + workloads (run after secrets) |
+| `docker_build.sh` | Build and push model image to registry (run on GPU node) |
 | `envoy-ai-gateway/gatewayclass.yaml` | GatewayClass (references Envoy Gateway controller) |
 | `envoy-ai-gateway/gateway.yaml` | Gateway resource (HTTPS listener, TLS termination, KServe label) |
 | `envoy-ai-gateway/certificate.yaml` | ClusterIssuer + Certificate (Let's Encrypt DNS-01 via Cloudflare) |
@@ -123,12 +124,17 @@ Weights are baked into the Docker image at build time — no download at pod sta
 export CLOUDFLARE_API_TOKEN="your-cloudflare-token"
 export REGISTRY_USERNAME="your-registry-user"
 export REGISTRY_PASSWORD="your-registry-password"
+export REGISTRY_USER="your-registry-user"
+export REGISTRY_PASS="your-registry-password"
 export HF_TOKEN="your-hf-token"
 
 # 2. Create all secrets
 bash k8s_secrets.sh
 
-# 3. Deploy everything
+# 3. Build and push model image (on GPU node)
+bash docker_build.sh
+
+# 4. Deploy everything
 bash k8s_deploy.sh
 ```
 

@@ -4,6 +4,16 @@ set -euo pipefail
 # Deploy all Kubernetes resources for case_beta.
 # Run AFTER k8s_secrets.sh.
 
+# install helm
+curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-4
+chmod 700 get_helm.sh
+./get_helm.sh
+
+#set up cluster access
+sudo cp /etc/rancher/k3s/k3s.yaml ~/.kube/config
+sudo chown $USER:$USER ~/.kube/config
+chmod 600 ~/.kube/config
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 echo "=== 1. Namespace ==="
@@ -65,34 +75,27 @@ helm upgrade --install kube-prometheus-stack prometheus-community/kube-prometheu
   -f "${SCRIPT_DIR}/../monitoring/kube-prometheus-stack-values.yaml"
 kubectl apply -f "${SCRIPT_DIR}/../monitoring/dcgm-exporter.yaml"
 
-echo "=== 11. Model image ==="
-bash "${SCRIPT_DIR}/../model-image/build.sh" \
-  --base vllm/vllm-openai:latest \
-  --model Qwen/Qwen2.5-7B-Instruct \
-  --tag docker-registry.yacodata.com/kserve-vllm-qwen:0.1
-docker push docker-registry.yacodata.com/kserve-vllm-qwen:0.1
-
-echo "=== 12. KServe LLMInferenceServiceConfig ==="
+echo "=== 11. KServe LLMInferenceServiceConfig ==="
 kubectl apply -f "${SCRIPT_DIR}/kserve/llm-inferenceservice-config.yaml"
 
-echo "=== 13. KServe LLMInferenceService ==="
+echo "=== 12. KServe LLMInferenceService ==="
 kubectl apply -f "${SCRIPT_DIR}/kserve/llm-inferenceservice.yaml"
 
-echo "=== 14. Envoy AI Gateway InferencePool + Model ==="
+echo "=== 13. Envoy AI Gateway InferencePool + Model ==="
 kubectl apply -f "${SCRIPT_DIR}/envoy-ai-gateway/inferencepool.yaml"
 
-echo "=== 15. Envoy AI Gateway HTTPRoute ==="
+echo "=== 14. Envoy AI Gateway HTTPRoute ==="
 kubectl apply -f "${SCRIPT_DIR}/envoy-ai-gateway/aigatewayroute.yaml"
 
-echo "=== 16. Expose Envoy Gateway via NodePort ==="
+echo "=== 15. Expose Envoy Gateway via NodePort ==="
 kubectl patch service envoy-gateway-proxy -n envoy-gateway-system \
   --type=json \
   -p='[{"op":"replace","path":"/spec/type","value":"NodePort"},{"op":"add","path":"/spec/ports/-","value":{"name":"https","port":443,"targetPort":443,"nodePort":30080,"protocol":"TCP"}}]'
 
-echo "=== 17. CORS policy ==="
+echo "=== 16. CORS policy ==="
 kubectl apply -f "${SCRIPT_DIR}/envoy-ai-gateway/cors-policy.yaml"
 
-echo "=== 18. NextChat frontend ==="
+echo "=== 17. NextChat frontend ==="
 kubectl create namespace frontend --dry-run=client -o yaml | kubectl apply -f -
 kubectl apply -f "${SCRIPT_DIR}/../frontend/nextchat/"
 
