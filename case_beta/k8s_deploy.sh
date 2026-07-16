@@ -16,6 +16,14 @@ helm upgrade --install cert-manager jetstack/cert-manager \
   --version v1.18.0 \
   --set crds.enabled=true
 
+echo " Creating TLS certificate (envoy-llm.yacodata.com)"
+kubectl apply -f "${SCRIPT_DIR}/envoy-ai-gateway/certificate.yaml"
+
+echo ""
+echo "Waiting for certificate to be ready..."
+kubectl wait --timeout=5m -n envoy-ai-gateway-system certificate/envoy-tls-cert --for=condition=Ready
+
+
 echo "=== 3. AI Gateway CRDs ==="
 helm upgrade -i aieg-crd oci://docker.io/envoyproxy/ai-gateway-crds-helm \
   --version v1.0.0 \

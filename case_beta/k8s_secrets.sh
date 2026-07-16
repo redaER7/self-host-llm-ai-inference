@@ -8,6 +8,22 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 echo "=== Secrets ==="
 
+# create namespaces if not already created
+
+if ! kubectl get ns cert-manager &> /dev/null; then
+  kubectl create ns cert-manager
+fi
+
+if ! kubectl get ns beta &> /dev/null; then
+  kubectl create ns beta
+fi
+if kubectl get ns envoy-ai-gateway-system &> /dev/null; then
+  kubectl create ns envoy-ai-gateway-system
+fi
+if kubectl get ns envoy-gateway-system &> /dev/null; then
+  kubectl create ns envoy-gateway-system
+fi
+
 echo "[1/4] Cloudflare API token (cert-manager DNS-01)"
 kubectl create secret generic cloudflare-api-token \
   --namespace cert-manager \
@@ -28,13 +44,6 @@ kubectl create secret generic hf-token \
   --namespace beta \
   --from-literal=token="${HF_TOKEN:?Set HF_TOKEN}" \
   --dry-run=client -o yaml | kubectl apply -f -
-
-echo "[4/4] TLS certificate (envoy-llm.yacodata.com)"
-kubectl apply -f "${SCRIPT_DIR}/envoy-ai-gateway/certificate.yaml"
-
-echo ""
-echo "Waiting for certificate to be ready..."
-kubectl wait --timeout=5m -n envoy-ai-gateway-system certificate/envoy-tls-cert --for=condition=Ready
 
 echo ""
 echo "All secrets created."
