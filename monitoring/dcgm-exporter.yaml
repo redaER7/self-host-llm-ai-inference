@@ -20,9 +20,9 @@ spec:
         prometheus.io/port: "9400"
     spec:
       nodeSelector:
-        cloud: vast
+        node-role.kubernetes.io/gpu-node: "true"
       tolerations:
-        - key: "vast-ai"
+        - key: "gpu-node"
           operator: "Equal"
           value: "true"
           effect: "NoSchedule"
