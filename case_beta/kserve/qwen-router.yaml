@@ -1,0 +1,10 @@
+apiVersion: serving.kserve.io/v1alpha1
+kind: LLMInferenceServiceConfig
+metadata:
+  name: qwen-router
+  namespace: beta
+spec:
+  router:
+    route: {}
+    gateway: {}
+    scheduler: {}

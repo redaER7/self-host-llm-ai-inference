@@ -1,0 +1,32 @@
+apiVersion: serving.kserve.io/v1alpha1
+kind: LLMInferenceServiceConfig
+metadata:
+  name: qwen-workload
+  namespace: beta
+spec:
+  replicas: 1
+  template:
+    hostNetwork: true
+    nodeSelector:
+      node-role.kubernetes.io/gpu-node: "true"
+    tolerations:
+      - key: "gpu-node"
+        operator: "Equal"
+        value: "true"
+        effect: "NoSchedule"
+    imagePullSecrets:
+      - name: registry-credentials
+    containers:
+      - name: main
+        image: docker-registry.yacodata.com/kserve-vllm-qwen:0.1
+        imagePullPolicy: Always
+        args:
+          - --model
+          - Qwen/Qwen2.5-7B-Instruct
+        resources:
+          limits:
+            nvidia.com/gpu: "1"
+            memory: 10Gi
+          requests:
+            nvidia.com/gpu: "1"
+            memory: 6Gi

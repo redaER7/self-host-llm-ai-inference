@@ -5,8 +5,8 @@ metadata:
   namespace: beta
 spec:
   targetRef:
-    group: gateway.networking.k8s.io
-    kind: HTTPRoute
+    group: aigateway.envoyproxy.io
+    kind: AIGatewayRoute
     name: qwen-route
   cors:
     allowOrigins:

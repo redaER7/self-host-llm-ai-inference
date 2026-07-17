@@ -1,36 +1,10 @@
-apiVersion: serving.kserve.io/v1alpha2
+apiVersion: serving.kserve.io/v1alpha1
 kind: LLMInferenceService
 metadata:
   name: qwen-7b
   namespace: beta
 spec:
-  model:
-    name: qwen2.5-7b
-    uri: hf://Qwen/Qwen2.5-7B-Instruct
-  storageInitializer:
-    enabled: false
-  replicas: 1
   baseRefs:
-    - name: llm-d-vllm-template
-  template:
-    hostNetwork: true
-    nodeSelector:
-      node-role.kubernetes.io/gpu-node: "true"
-    tolerations:
-      - key: "gpu-node"
-        operator: "Equal"
-        value: "true"
-        effect: "NoSchedule"
-    containers:
-      - name: main
-        resources:
-          limits:
-            nvidia.com/gpu: "1"
-            memory: 10Gi
-          requests:
-            nvidia.com/gpu: "1"
-            memory: 6Gi
-  router:
-    scheduler: {}
-    route: {}
-    gateway: {}
+    - name: qwen-model
+    - name: qwen-workload
+    - name: qwen-router

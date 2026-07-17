@@ -42,6 +42,7 @@ docker build \
   -t "$TAG" \
   --build-arg BASE_IMAGE="$BASE_IMAGE" \
   --build-arg MODEL_NAME="$MODEL_NAME" \
+  --secret id=hf_token,env=HF_TOKEN \
   -f "$SCRIPT_DIR/Dockerfile" \
   "$SCRIPT_DIR"
 
