@@ -4,6 +4,8 @@ set -euo pipefail
 # Build and push the model image to the private registry.
 # Run this on the GPU node (or any machine with Docker access).
 
+export DOCKER_BUILDKIT=1
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 echo "Logging in to registry..."
@@ -12,6 +14,7 @@ echo "${REGISTRY_PASS}" | docker login docker-registry.yacodata.com \
 
 echo "Building model image..."
 bash "${SCRIPT_DIR}/../model-image/build.sh" \
+  --secret id=hf_token,env=HF_TOKEN \
   --base vllm/vllm-openai:latest \
   --model Qwen/Qwen2.5-7B-Instruct \
   --tag docker-registry.yacodata.com/kserve-vllm-qwen:0.1
