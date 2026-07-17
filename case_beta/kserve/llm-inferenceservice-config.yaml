@@ -7,16 +7,18 @@ spec:
   router:
     scheduler:
       config:
-        inline: |
-          {
-            "scoringRules": {
-              "prefix-cache": {"weight": 2.0},
-              "load-aware": {"weight": 1.0}
-            },
-            "picker": {"policy": "max-score"},
-            "cache": {"enabled": true, "maxCacheCapacity": 10000},
-            "timeout": "300s"
-          }
+        inline:
+          scoringRules:
+            prefix-cache:
+              weight: 2.0
+            load-aware:
+              weight: 1.0
+          picker:
+            policy: max-score
+          cache:
+            enabled: true
+            maxCacheCapacity: 10000
+          timeout: "300s"
   template:
     imagePullSecrets:
       - name: registry-credentials

@@ -67,6 +67,9 @@ helm upgrade --install lws oci://registry.k8s.io/lws/charts/lws --version v0.6.2
 echo "=== 8. KServe (monolithic) ==="
 kubectl apply --server-side -f https://github.com/kserve/kserve/releases/download/v0.18.0/kserve.yaml
 
+echo "=== 8b. Gateway API Inference Extension CRDs ==="
+kubectl apply --server-side -f https://github.com/kubernetes-sigs/gateway-api-inference-extension/releases/latest/download/manifests.yaml
+
 echo "=== 9. Re-apply Gateway (after KServe CRDs) ==="
 kubectl apply -f "${SCRIPT_DIR}/envoy-ai-gateway/gateway.yaml"
 

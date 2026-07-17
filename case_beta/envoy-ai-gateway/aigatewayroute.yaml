@@ -9,8 +9,6 @@ spec:
   parentRefs:
     - name: ai-gateway
       namespace: envoy-ai-gateway-system
-  hostnames:
-    - "*"
   rules:
     - matches:
         - path:

@@ -6,6 +6,9 @@ metadata:
 spec:
   model:
     name: qwen2.5-7b
+    uri: hf://Qwen/Qwen2.5-7B-Instruct
+  storageInitializer:
+    enabled: false
   replicas: 1
   baseRefs:
     - name: llm-d-vllm-template
