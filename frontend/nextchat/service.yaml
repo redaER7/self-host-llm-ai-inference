@@ -11,5 +11,5 @@ spec:
     - name: https
       port: 443
       targetPort: 3000
-      nodePort: 3080
+      nodePort: 30081
       protocol: TCP
