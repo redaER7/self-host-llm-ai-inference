@@ -4,7 +4,7 @@ apiVersion: apps/v1
 kind: DaemonSet
 metadata:
   name: dcgm-exporter
-  namespace: kube-system
+  namespace: monitoring
   labels:
     app: dcgm-exporter
 spec:
@@ -28,7 +28,7 @@ spec:
           effect: "NoSchedule"
       containers:
         - name: dcgm-exporter
-          image: nvcr.io/nvidia/k8s-dcgm-exporter:latest
+          image: nvidia/dcgm-exporter:latest
           args:
             - -f
             - /etc/dcgm-exporter/dcp-metrics-included.csv
@@ -59,7 +59,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: dcgm-exporter
-  namespace: kube-system
+  namespace: monitoring
   labels:
     app: dcgm-exporter
 spec:
