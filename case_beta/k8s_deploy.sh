@@ -43,15 +43,11 @@ helm upgrade -i aieg-crd oci://docker.io/envoyproxy/ai-gateway-crds-helm \
   --namespace envoy-ai-gateway-system \
   --create-namespace
 
-echo "=== 4. Envoy Gateway ==="
+echo "=== 4. Envoy Gateway (with AI Gateway support) ==="
 helm upgrade --install eg oci://docker.io/envoyproxy/gateway-helm --version v1.8.2 \
-  -n envoy-gateway-system --create-namespace
+  -n envoy-gateway-system --create-namespace \
+  -f "${SCRIPT_DIR}/envoy-ai-gateway/envoy-gateway-values.yaml"
 kubectl wait --timeout=5m -n envoy-gateway-system deployment/envoy-gateway --for=condition=Available
-
-echo "=== 4b. Enable InferencePool support in Envoy Gateway ==="
-kubectl apply -f https://raw.githubusercontent.com/envoyproxy/ai-gateway/main/examples/inference-pool/config.yaml
-kubectl rollout restart -n envoy-gateway-system deployment/envoy-gateway
-kubectl wait --timeout=2m -n envoy-gateway-system deployment/envoy-gateway --for=condition=Available
 
 echo "=== 5. GatewayClass + EnvoyProxy + Gateway ==="
 kubectl apply -f "${SCRIPT_DIR}/envoy-ai-gateway/gatewayclass.yaml"
@@ -74,6 +70,14 @@ kubectl apply --server-side -f https://github.com/kserve/kserve/releases/downloa
 
 echo "=== 8b. Gateway API Inference Extension CRDs ==="
 kubectl apply --server-side -f https://github.com/kubernetes-sigs/gateway-api-inference-extension/releases/latest/download/manifests.yaml
+
+echo "=== 8c. Enable InferencePool support in Envoy Gateway + restart ==="
+helm upgrade --install eg oci://docker.io/envoyproxy/gateway-helm --version v1.8.2 \
+  -n envoy-gateway-system \
+  -f "${SCRIPT_DIR}/envoy-ai-gateway/envoy-gateway-values.yaml" \
+  -f "${SCRIPT_DIR}/envoy-ai-gateway/envoy-gateway-values-addon.yaml"
+kubectl rollout restart -n envoy-gateway-system deployment/envoy-gateway
+kubectl wait --timeout=2m -n envoy-gateway-system deployment/envoy-gateway --for=condition=Available
 
 echo "=== 9. Re-apply Gateway (after KServe CRDs) ==="
 kubectl apply -f "${SCRIPT_DIR}/envoy-ai-gateway/gateway.yaml"
