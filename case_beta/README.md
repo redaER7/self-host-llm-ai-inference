@@ -1,6 +1,8 @@
 # Case β (beta) — Single Model, All on GPU Node
 
-Envoy AI Gateway → KServe + llm-d + EPP → vLLM → Vast.ai RTX 3090. All components co-located on the GPU node — no cross-node networking, no WireGuard latency, no tunnel complexity.
+Envoy AI Gateway → KServe + llm-d + EPP → vLLM → Vast.ai RTX 3090. All inference components co-located on the GPU node — inference traffic stays local, no cross-node hops for the data plane.
+
+**Note on cross-node networking:** If your K3s cluster runs entirely on a single flat network (e.g., all nodes on the same LAN or cloud VPC), Flannel VXLAN works natively and you can skip the WireGuard setup below. The setup described here assumes Hetzner CP + Vast.ai GPU, which are on different networks — Flannel VXLAN from the CP node cannot reach the GPU node's private Vast.ai IP. A WireGuard tunnel bridges this gap. See [WireGuard setup](#wireguard-setup) for details.
 
 ## Architecture
 
@@ -23,7 +25,7 @@ Client → envoy-llm.yacodata.com:30080
                Vast.ai RTX 3090 (single node, all local)
 ```
 
-All inference traffic stays within the GPU node — no WireGuard tunnel, no cross-node ClusterIP routing, no external gateway component. Envoy Gateway proxy pods are scheduled on the GPU node via `nodeSelector` + `tolerations`, alongside the KServe vLLM workload.
+All inference traffic stays within the GPU node. Envoy Gateway proxy pods are scheduled on the GPU node via `nodeSelector` + `tolerations`, alongside the KServe vLLM workload. Cross-node traffic (Flannel VXLAN between CP and GPU) flows over a WireGuard tunnel so the CP can reach GPU node pods.
 
 TLS termination is handled by Envoy Gateway at the Gateway level. Certificates are provisioned automatically by cert-manager via Let's Encrypt DNS-01 challenge through Cloudflare.
 
@@ -31,11 +33,11 @@ TLS termination is handled by Envoy Gateway at the Gateway level. Certificates a
 
 | Benefit | Why |
 |---------|-----|
-| **No WireGuard latency** | Data plane is single-hop inside the GPU node |
-| **Simpler networking** | No tunnel setup, no UFW rules, no hostNetwork workarounds |
-| **Single entry point** | Envoy Gateway NodePort on `envoy-llm.yacodata.com` |
+| **Low latency** | Inference path stays within GPU node (no cross-node hop for vLLM responses) |
 | **Production routing** | Token metering, rate limiting, cache-aware EPP scheduling |
+| **Single entry point** | Envoy Gateway NodePort on `envoy-llm.yacodata.com` |
 | **Faster cold start** | Model weights baked into Docker image (~10 s vs 5-15 min HF download) |
+| **Standard networking** | No hostNetwork workarounds; pods use regular Flannel overlay |
 
 ## Requirements
 
@@ -76,25 +78,164 @@ Weights are baked into the Docker image at build time — no download at pod sta
 ## Install Order
 
 1. **K3s** — Hetzner CP + Vast.ai GPU agent (see [k3s-install.sh](../k8s_control_plane/k3s-install.sh) and [vast-ai-bootstrap.sh](../gpu_providers/vast-ai-bootstrap.sh))
-2. **cert-manager** — webhook certificates
-3. **AI Gateway CRDs (Helm)** — InferencePool, InferenceModel
-4. **Envoy Gateway (Helm)** — installs Gateway API + Envoy CRDs, controller; then apply GatewayClass + EnvoyProxy + Gateway
-5. **AI Gateway Controller (Helm)** — AI routing, token metering, rate limiting
-6. **LWS Operator** — LeaderWorkerSet (needed by KServe)
-7. **KServe** — LLMInferenceService CRD (llm-d mode)
-8. **Monitoring** — Prometheus + Grafana + DCGM (shared stack, see [monitoring/](../monitoring/))
-9. **Cloudflare DNS-01 secret + ClusterIssuer + Certificate** — Let's Encrypt TLS for envoy-llm.yacodata.com
-10. **Create Gateway resource** — HTTPS listener referencing the cert-manager certificate
-11. **Build model image** — bake Qwen weights into serving image
-12. **Create secrets** — registry credentials and HF token
-13. **Deploy LLMInferenceServiceConfig + LLMInferenceService**
-14. **Apply InferencePool + InferenceModel** — Envoy AI Gateway pool config
-15. **Apply HTTPRoute** — attach route to Gateway
-16. **Expose Envoy Gateway** — patch service to NodePort
-17. **Configure Vast.ai port forwarding** — map instance port → NodePort
-18. **Apply CORS policy** — allow NextChat origin to call Envoy Gateway
-19. **Set DNS A record** — envoy-llm.yacodata.com → Vast.ai public IP
-20. **Deploy NextChat** — frontend UI on CP node (see [frontend/nextchat](../frontend/nextchat))
+2. **WireGuard tunnel** — Bridge CP and GPU networks (skip if same network). See [WireGuard setup](#wireguard-setup)
+3. **cert-manager** — webhook certificates
+4. **AI Gateway CRDs (Helm)** — InferencePool, InferenceModel
+5. **Envoy Gateway (Helm)** — installs Gateway API + Envoy CRDs, controller; then apply GatewayClass + EnvoyProxy + Gateway
+6. **AI Gateway Controller (Helm)** — AI routing, token metering, rate limiting
+7. **LWS Operator** — LeaderWorkerSet (needed by KServe)
+8. **KServe** — LLMInferenceService CRD (llm-d mode)
+9. **Monitoring** — Prometheus + Grafana + DCGM (shared stack, see [monitoring/](../monitoring/))
+10. **Cloudflare DNS-01 secret + ClusterIssuer + Certificate** — Let's Encrypt TLS for envoy-llm.yacodata.com
+11. **Create Gateway resource** — HTTPS listener referencing the cert-manager certificate
+12. **Build model image** — bake Qwen weights into serving image
+13. **Create secrets** — registry credentials and HF token
+14. **Deploy LLMInferenceServiceConfig + LLMInferenceService**
+15. **Apply InferencePool + InferenceModel** — Envoy AI Gateway pool config
+16. **Apply HTTPRoute** — attach route to Gateway
+17. **Expose Envoy Gateway** — patch service to NodePort
+18. **Configure Vast.ai port forwarding** — map instance port → NodePort
+19. **Apply CORS policy** — allow NextChat origin to call Envoy Gateway
+20. **Set DNS A record** — envoy-llm.yacodata.com → Vast.ai public IP
+21. **Deploy NextChat** — frontend UI on CP node (see [frontend/nextchat](../frontend/nextchat))
+
+---
+
+## WireGuard Setup
+
+Required when the CP and GPU nodes are on different networks (e.g., Hetzner CP + Vast.ai GPU). Skip this section if all nodes are on the same LAN or cloud VPC — Flannel VXLAN will work natively.
+
+### How it works
+
+Flannel uses VXLAN (UDP 8472) for cross-node pod networking. On the CP node, the VXLAN forwarding database maps the GPU node's pod subnet to the GPU node's internal IP (`10.0.2.15` on Vast.ai). This IP is a private Vast.ai address, not reachable from the public internet.
+
+A WireGuard tunnel between the two nodes makes the GPU node's internal IP routable from the CP node. VXLAN packets to the GPU node flow through the tunnel; return packets go directly (GPU can reach CP's public IP).
+
+```
+CP node (Hetzner)                         GPU node (Vast.ai)
+┌─────────────────────┐                  ┌─────────────────────┐
+│ flannel.1 (VXLAN)   │                  │ flannel.1 (VXLAN)   │
+│   dst 10.0.2.15     │                  │   dst 89.167.109.193│
+│         ↓           │                  │         ↑           │
+│ wg0 (10.8.0.1) ─────┼── WireGuard ────┼─→ wg0 (10.8.0.2)    │
+│         │           │   51820/udp     │         │           │
+│         │           │                  │   UFW allows 8472  │
+│         └─→ route   │                  │   from 10.8.0.0/24  │
+│             10.0.2.15│                  │                     │
+│             via wg0  │                  │                     │
+└─────────────────────┘                  └─────────────────────┘
+```
+
+### Step 1: Set up WireGuard server on CP node
+
+Run the CP setup script on the Hetzner CP node:
+
+```bash
+bash case_beta/wireguard-cp-setup.sh
+```
+
+This script:
+- Installs `wireguard-tools`
+- Generates a server key pair
+- Creates `/etc/wireguard/wg0.conf` with iptables NAT for VXLAN traffic
+- Starts `wg-quick@wg0`
+- Outputs the server public key to share with the GPU node
+
+After the script completes:
+1. Share the server public key with the GPU node
+2. Once the GPU node generates its key pair, add its public key to `/etc/wireguard/wg0.conf`:
+   ```ini
+   [Peer]
+   PublicKey = <gpu-client-public-key>
+   AllowedIPs = 10.8.0.2/32
+   ```
+3. Restart WireGuard: `sudo systemctl restart wg-quick@wg0`
+4. Open port `51820/udp` in the Hetzner firewall
+
+### Step 2: Set up WireGuard client on GPU node
+
+Generate a key pair on the GPU node and share public keys with the CP node, then create the client config:
+
+```bash
+# On GPU node — generate key pair
+wg genkey | tee /etc/wireguard/client.key | wg pubkey > /etc/wireguard/client.pub
+chmod 600 /etc/wireguard/client.key
+
+# Copy the CP node's public key to know value for Peer section
+# Copy this node's public key to the CP node's Peer section
+cat /etc/wireguard/client.pub
+```
+
+Create `/etc/wireguard/wg0.conf` on the GPU node:
+
+```ini
+[Interface]
+Address = 10.8.0.2/24
+PrivateKey = <paste-gpu-private-key>
+MTU = 1420
+
+[Peer]
+PublicKey = <cp-node-public-key>
+Endpoint = <hetzner-public-ip>:51820
+AllowedIPs = 10.8.0.0/24
+PersistentKeepalive = 25
+```
+
+Then run the setup script:
+
+```bash
+bash case_beta/wireguard-setup.sh
+```
+
+This script:
+- Installs `wireguard-tools` (if not already installed)
+- Loads the WireGuard kernel module
+- Enables and starts `wg-quick@wg0`
+- Configures UFW to allow Flannel VXLAN, Kubelet, etc. from the WireGuard subnet
+
+Verify the tunnel:
+
+```bash
+ping -c 3 10.8.0.1
+```
+
+### Step 3: Route GPU node IP through WireGuard on CP
+
+Add a persistent route so VXLAN encapsulated packets destined for the GPU node flow through the WireGuard tunnel:
+
+```bash
+ip route add 10.0.2.15/32 via 10.8.0.2 dev wg0
+```
+
+Make it persistent (adjust for your distro):
+
+```bash
+echo "10.0.2.15/32 via 10.8.0.2 dev wg0" >> /etc/iproute2/rt_tables.d/wg.conf
+```
+
+Or add to `/etc/network/interfaces` or your network manager's post-up script.
+
+### Step 4: Verify bidirectional VXLAN
+
+From the CP node, test direct pod-to-pod connectivity to a pod on the GPU node:
+
+```bash
+kubectl run test-pod --image=busybox:1.36 --rm -it --restart=Never \
+  -- nc -zv -w3 <gpu-pod-ip> <port>
+```
+
+If the tunnel is working, the connection succeeds. Verify the envoy proxy starts 3/3 Ready on the GPU node (after applying the EnvoyProxy resource with GPU node scheduling).
+
+### Firewall reference
+
+Ports that must be open on the GPU node (Vast.ai template):
+
+| Port | Protocol | Purpose |
+|------|----------|---------|
+| 8472 | UDP | Flannel VXLAN (allowed from WireGuard subnet only) |
+| 51820 | UDP | WireGuard (outbound from GPU to CP) |
+| 10250 | TCP | Kubelet (allowed from WireGuard subnet only) |
+| 6443 | TCP | K3s API (via public IP, not WireGuard) |
 
 ---
 
@@ -114,6 +255,8 @@ Weights are baked into the Docker image at build time — no download at pod sta
 | `envoy-ai-gateway/cors-policy.yaml` | SecurityPolicy (CORS for NextChat origin) |
 | `kserve/` | KServe LLMInferenceServiceConfig + LLMInferenceService |
 | `epp-scheduler/` | EPP scorer weights reference |
+| `wireguard-cp-setup.sh` | WireGuard server setup on Hetzner CP (run first) |
+| `wireguard-setup.sh` | WireGuard client setup + UFW rules (run on GPU node) |
 
 ---
 
@@ -414,9 +557,10 @@ curl -X POST https://envoy-llm.yacodata.com:30080/v1/chat/completions \
 | Aspect | alpha | beta |
 |--------|-------|------|
 | Gateway | FastAPI (custom, CP node) | Envoy AI Gateway (GPU node) |
-| Networking | WireGuard tunnel (CP ↔ GPU) | All local (single node) |
-| Latency | Cross-node hop | Zero additional hop |
-| Setup complexity | WireGuard, UFW, hostNetwork | NodeSelector only |
+| Data plane | hostNetwork + direct WireGuard IP | Flannel VXLAN over WireGuard |
+| Inference latency | Cross-node hop over WireGuard | Local to GPU node (no hop) |
+| Control plane | WireGuard for data only | WireGuard for Flannel VXLAN |
+| Setup complexity | WireGuard + UFW + hostNetwork | WireGuard + UFW + route (no hostNetwork) |
 | Model deployment | plain Deployment | KServe LLMInferenceService |
 | Model weights | HF download at startup | Baked in Docker image |
 | Router | None (kube-proxy) | llm-d (cache-aware) |
@@ -435,7 +579,8 @@ curl -X POST https://envoy-llm.yacodata.com:30080/v1/chat/completions \
 
 ## When to use beta
 
-- Production single-model deployment without cross-node networking overhead
+- Production single-model deployment with inference staying on the GPU node (no cross-node hop for the data plane)
 - Multi-turn conversations where prefix caching matters
 - When token metering and rate limiting are required
 - When you want Envoy Gateway as the single routing layer (no FastAPI, no NGINX)
+- When all nodes are on the same network (skip WireGuard — Flannel VXLAN works natively)

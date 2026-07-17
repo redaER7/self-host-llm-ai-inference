@@ -9,7 +9,7 @@ Control plane on Hetzner Cloud, GPU workers on Vast.ai.
 
 ## Architecture (Case beta — current/active)
 
-All inference components co-located on the GPU node — no WireGuard tunnel, no cross-node hops.
+All inference components co-located on the GPU node — inference data plane stays local, no cross-node hops for vLLM responses. Cross-node control plane traffic (Flannel VXLAN) flows over a WireGuard tunnel when CP and GPU are on different networks (e.g., Hetzner + Vast.ai).
 
 ```
 Browser ──https──→ envoy-llm.yacodata.com:30080
@@ -69,6 +69,8 @@ Browser ──https──→ chat.yacodata.com
 │   │   ├── llm-inferenceservice.yaml  # LLMInferenceService: composes 3 configs via baseRefs
 │   │   └── endpoint-picker-config.yaml# ConfigMap: EPP scorer weights (prefix-cache 2.0, load 1.0)
 │   │
+│   ├── wireguard-cp-setup.sh         # WireGuard server setup on Hetzner CP
+│   ├── wireguard-setup.sh            # WireGuard client setup + UFW rules (run on GPU node)
 │   └── epp-scheduler/                # EPP scheduler reference (placeholder)
 │
 ├── case_alpha/                        # PREVIOUS — minimal FastAPI + WireGuard
@@ -112,6 +114,7 @@ Browser ──https──→ chat.yacodata.com
 - **Service**: Auto-created by Envoy Gateway, patched to `NodePort` with `nodePort: 30080`. Found via label selector `gateway.envoyproxy.io/owning-gateway-namespace=envoy-ai-gateway-system,gateway.envoyproxy.io/owning-gateway-name=ai-gateway`.
 - **Helm install sequence**: Stage 1 (base values with AI Gateway hooks), then after InferencePool CRDs exist, stage 2 (addon values + restart).
 - **Deployment**: Single replica on GPU node alongside vLLM pod.
+- **Cross-node networking**: The proxy pod connects to the envoy-gateway controller (CP node) via xDS. Flannel VXLAN carries this traffic; when CP and GPU are on different networks, VXLAN packets flow over a WireGuard tunnel (see [WireGuard setup](#prerequisites)).
 
 ### 3. Envoy AI Gateway (v1.0.0)
 - **CRD chart** (`ai-gateway-crds-helm`): Installed in `envoy-ai-gateway-system`, provides `AIGatewayRoute`, `InferencePool`, `InferenceModel` CRDs.
@@ -175,9 +178,22 @@ SecurityPolicy `cors-policy` (namespace `beta`) targeting AIGatewayRoute `qwen-r
 
 ---
 
+## Prerequisites
+
+### WireGuard tunnel (cross-network clusters only)
+
+When the CP and GPU nodes are on different networks (e.g., Hetzner CP + Vast.ai GPU), Flannel VXLAN cannot reach the GPU node's private IP. A host-native WireGuard tunnel bridges this gap. If all nodes share a flat network, skip this.
+
+1. **Server (CP node):** Run `case_beta/wireguard-cp-setup.sh` to generate keys, create config, and start `wg-quick@wg0`.
+2. **Client (GPU node):** Generate keys, create `wg0.conf` with the CP's public key, run `case_beta/wireguard-setup.sh`.
+3. **Key exchange:** Share public keys between nodes; add GPU's public key to CP's `wg0.conf` `[Peer]` section.
+4. **Route (CP node):** Add `ip route add <gpu-internal-ip>/32 via 10.8.0.2 dev wg0` to route VXLAN through the tunnel.
+
+See [case_beta/README.md](./case_beta/README.md#wireguard-setup) for full instructions.
+
 ## Deployment Flow
 
-3 scripts, run in order:
+3 scripts, run in order (after WireGuard tunnel is up):
 
 ```
 [1] k8s_secrets.sh (run once, any node with kubectl)
