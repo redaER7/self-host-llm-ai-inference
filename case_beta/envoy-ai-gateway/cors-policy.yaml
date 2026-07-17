@@ -10,8 +10,7 @@ spec:
     name: qwen-route
   cors:
     allowOrigins:
-      - type: Regex
-        value: "https?://(localhost|chat\\.yacodata\\.com|.*\\.yacodata\\.com)(:\\d+)?"
+      - regex: "https?://(localhost|chat\\.yacodata\\.com|.*\\.yacodata\\.com)(:\\d+)?"
     allowMethods:
       - POST
       - OPTIONS
