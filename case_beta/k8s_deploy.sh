@@ -27,15 +27,15 @@ helm upgrade --install cert-manager jetstack/cert-manager \
   --set crds.enabled=true
 
 echo " Creating TLS certificate (envoy-llm.yacodata.com)"
-kubectl apply -f "${SCRIPT_DIR}/envoy-ai-gateway/certificate.yaml"
+#kubectl apply -f "${SCRIPT_DIR}/envoy-ai-gateway/certificate.yaml"
 
 echo ""
 echo "Waiting for certificate to be ready..."
-kubectl wait --timeout=5m -n envoy-ai-gateway-system certificate/envoy-tls-cert --for=condition=Ready
+#kubectl wait --timeout=5m -n envoy-ai-gateway-system certificate/envoy-tls-cert --for=condition=Ready
 
 echo "Creating TLS certificate (chat.yacodata.com)"
-kubectl apply -f "${SCRIPT_DIR}/../frontend/nextchat/certificate.yaml"
-kubectl wait --timeout=5m -n frontend certificate/frontend-tls-cert --for=condition=Ready
+#kubectl apply -f "${SCRIPT_DIR}/../frontend/nextchat/certificate.yaml"
+#kubectl wait --timeout=5m -n frontend certificate/frontend-tls-cert --for=condition=Ready
 
 echo "=== 3. AI Gateway CRDs ==="
 helm upgrade -i aieg-crd oci://docker.io/envoyproxy/ai-gateway-crds-helm \
@@ -62,7 +62,7 @@ helm upgrade -i aieg oci://docker.io/envoyproxy/ai-gateway-helm \
 kubectl wait --timeout=2m -n envoy-ai-gateway-system deployment/ai-gateway-controller --for=condition=Available
 
 echo "=== 7. LWS Operator ==="
-helm upgrade --install lws oci://registry.k8s.io/lws/charts/lws --version v0.6.2 \
+helm upgrade --install lws oci://registry.k8s.io/lws/charts/lws \
   --namespace lws-system --create-namespace
 
 echo "=== 8. KServe (monolithic) ==="
@@ -103,9 +103,15 @@ echo "=== 13. Envoy AI Gateway AIGatewayRoute ==="
 kubectl apply -f "${SCRIPT_DIR}/envoy-ai-gateway/aigatewayroute.yaml"
 
 echo "=== 14. Expose Envoy Gateway via NodePort ==="
-kubectl patch service envoy-gateway-proxy -n envoy-gateway-system \
+ENVOY_SVC=$(kubectl get svc -n envoy-gateway-system \
+  -l gateway.envoyproxy.io/owning-gateway-namespace=envoy-ai-gateway-system,gateway.envoyproxy.io/owning-gateway-name=ai-gateway \
+  -o jsonpath='{.items[0].metadata.name}')
+echo "Found Envoy Gateway proxy service: $ENVOY_SVC"
+
+echo "Exposing via NodePort 30080..."
+kubectl patch service "$ENVOY_SVC" -n envoy-gateway-system \
   --type=json \
-  -p='[{"op":"replace","path":"/spec/type","value":"NodePort"},{"op":"add","path":"/spec/ports/-","value":{"name":"https","port":443,"targetPort":443,"nodePort":30080,"protocol":"TCP"}}]'
+  -p='[{"op":"replace","path":"/spec/type","value":"NodePort"},{"op":"replace","path":"/spec/ports/0/nodePort","value":30080}]'
 
 echo "=== 15. CORS policy ==="
 kubectl apply -f "${SCRIPT_DIR}/envoy-ai-gateway/cors-policy.yaml"
