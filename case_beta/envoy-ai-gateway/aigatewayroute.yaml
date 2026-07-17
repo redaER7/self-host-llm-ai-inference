@@ -1,4 +1,4 @@
-apiVersion: aigateway.envoyproxy.io/v1alpha1
+apiVersion: aigateway.envoyproxy.io/v1beta1
 kind: AIGatewayRoute
 metadata:
   name: qwen-route
@@ -15,7 +15,7 @@ spec:
               name: x-ai-eg-model
               value: qwen2.5-7b
       backendRefs:
-        - group: inference.networking.x-k8s.io
+        - group: inference.networking.k8s.io
           kind: InferencePool
           name: qwen-7b-inference-pool
   llmRequestCosts:
