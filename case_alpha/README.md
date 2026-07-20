@@ -74,7 +74,7 @@ Both pods use `hostNetwork: true` — the gateway connects to vLLM directly at t
 | `fastapi-gateway/` | FastAPI reverse proxy (Dockerfile + app code) |
 | `fastapi-deployment.yaml` | K8s Deployment + Service for the gateway (ClusterIP) |
 | `vllm-deployment.yaml` | K8s Deployment + Service + Namespace for vLLM |
-| `wireguard-setup.sh` | WireGuard client install + UFW rules for the GPU node |
+| `wireguard-setup.sh` | WireGuard client setup (delegates to `../wireguard/gpu-setup.sh`, address `10.8.0.3/24`) |
 | `gpu_providers/vast-ai-bootstrap.sh` | K3s agent bootstrap for Vast.ai GPU instances |
 
 ## Model Weight Strategy
@@ -148,18 +148,39 @@ bash k8s_control_plane/apply-gpu-manifests.sh
 
 ### 6. Set up WireGuard tunnel
 
-On the **Vast.ai** instance, run the WireGuard setup script:
+Run the shared CP setup script first (if not already done):
 
 ```bash
-bash case_alpha/wireguard-setup.sh
+bash wireguard/cp-setup.sh
 ```
 
-Before running, place your exported `wg0.conf` from the wg-easy admin UI at `/etc/wireguard/wg0.conf`. The script installs WireGuard tools, starts the tunnel, and configures UFW with the necessary rules.
+Then on the **GPU node**, run the shared GPU setup with the alpha-specific address:
+
+```bash
+export CP_NODE_IP=89.167.109.193
+export WG_ADDRESS=10.8.0.3/24
+bash wireguard/gpu-setup.sh
+```
+
+On the **CP node**, add the GPU's public key as a second peer in `/etc/wireguard/wg0.conf`:
+
+```ini
+[Peer]
+# case_alpha GPU
+PublicKey = <alpha-gpu-public-key>
+AllowedIPs = 10.8.0.3/32
+```
+
+Then restart: `sudo systemctl restart wg-quick@wg0`
 
 Verify the tunnel is up:
 
 ```bash
+# From GPU
 ping -c 3 10.8.0.1
+
+# From CP
+ping -c 3 10.8.0.3
 ```
 
 ### 7. Create registry credentials secret

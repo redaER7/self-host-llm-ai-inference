@@ -122,7 +122,7 @@ CP node (Hetzner)                GPU node (Vast.ai)
 ### Step 1 — CP node (run as root)
 
 ```bash
-bash case_beta/wireguard-cp-setup.sh
+bash wireguard/cp-setup.sh
 ```
 
 This creates your server key, starts WireGuard, and prints the **server public key**. Save it — you'll need it for the GPU node.
@@ -133,7 +133,7 @@ Then open **port 51820/udp** in the Hetzner firewall.
 
 ```bash
 export CP_NODE_IP=89.167.109.193
-bash case_beta/wireguard-setup.sh
+bash wireguard/gpu-setup.sh
 ```
 
 The script will:
@@ -210,8 +210,8 @@ The setup script opens these ports automatically:
 | `envoy-ai-gateway/cors-policy.yaml` | SecurityPolicy (CORS for NextChat origin) |
 | `kserve/` | KServe LLMInferenceServiceConfig + LLMInferenceService |
 | `epp-scheduler/` | EPP scorer weights reference |
-| `wireguard-cp-setup.sh` | WireGuard server setup on Hetzner CP (run first) |
-| `wireguard-setup.sh` | WireGuard client setup + UFW rules (run on GPU node) |
+| `wireguard-cp-setup.sh` | WireGuard server setup (delegates to `../wireguard/cp-setup.sh`) |
+| `wireguard-setup.sh` | WireGuard client setup (delegates to `../wireguard/gpu-setup.sh`) |
 
 ---
 
