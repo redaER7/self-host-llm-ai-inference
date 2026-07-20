@@ -2,12 +2,12 @@ apiVersion: gateway.envoyproxy.io/v1alpha1
 kind: SecurityPolicy
 metadata:
   name: cors-policy
-  namespace: beta
+  namespace: envoy-ai-gateway-system
 spec:
   targetRef:
-    group: aigateway.envoyproxy.io
-    kind: AIGatewayRoute
-    name: qwen-route
+    group: gateway.networking.k8s.io
+    kind: Gateway
+    name: ai-gateway
   cors:
     allowOrigins:
       - "https://chat.yacodata.com"
@@ -21,4 +21,4 @@ spec:
     allowHeaders:
       - Content-Type
       - Authorization
-    maxAge: "86400"
+    maxAge: "86400s"

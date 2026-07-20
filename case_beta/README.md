@@ -103,139 +103,94 @@ Weights are baked into the Docker image at build time — no download at pod sta
 
 ## WireGuard Setup
 
-Required when the CP and GPU nodes are on different networks (e.g., Hetzner CP + Vast.ai GPU). Skip this section if all nodes are on the same LAN or cloud VPC — Flannel VXLAN will work natively.
+Required when CP and GPU nodes are on different networks (e.g. Hetzner + Vast.ai). Skip if all nodes are on the same LAN — Flannel VXLAN works natively.
 
 ### How it works
 
-Flannel uses VXLAN (UDP 8472) for cross-node pod networking. On the CP node, the VXLAN forwarding database maps the GPU node's pod subnet to the GPU node's internal IP (`10.0.2.15` on Vast.ai). This IP is a private Vast.ai address, not reachable from the public internet.
-
-A WireGuard tunnel between the two nodes makes the GPU node's internal IP routable from the CP node. VXLAN packets to the GPU node flow through the tunnel; return packets go directly (GPU can reach CP's public IP).
+Flannel uses VXLAN (`UDP 8472`) for pod-to-pod networking across nodes. The CP needs to reach the GPU node's internal IP (`10.0.2.15` on Vast.ai), but that IP is private and not routable from the internet. A WireGuard tunnel makes it reachable.
 
 ```
-CP node (Hetzner)                         GPU node (Vast.ai)
-┌─────────────────────┐                  ┌─────────────────────┐
-│ flannel.1 (VXLAN)   │                  │ flannel.1 (VXLAN)   │
-│   dst 10.0.2.15     │                  │   dst 89.167.109.193│
-│         ↓           │                  │         ↑           │
-│ wg0 (10.8.0.1) ─────┼── WireGuard ────┼─→ wg0 (10.8.0.2)    │
-│         │           │   51820/udp     │         │           │
-│         │           │                  │   UFW allows 8472  │
-│         └─→ route   │                  │   from 10.8.0.0/24  │
-│             10.0.2.15│                  │                     │
-│             via wg0  │                  │                     │
-└─────────────────────┘                  └─────────────────────┘
+CP node (Hetzner)                GPU node (Vast.ai)
+┌────────────────────┐          ┌────────────────────┐
+│ wg0 (10.8.0.1) ────┼─ tunnel ─┼─→ wg0 (10.8.0.2)  │
+│                    │ UDP 51820│                    │
+│ route 10.0.2.15    │          │ UFW open: 8472,   │
+│   via 10.8.0.2     │          │  10250, 6443       │
+└────────────────────┘          └────────────────────┘
 ```
 
-### Step 1: Set up WireGuard server on CP node
-
-Run the CP setup script on the Hetzner CP node:
+### Step 1 — CP node (run as root)
 
 ```bash
 bash case_beta/wireguard-cp-setup.sh
 ```
 
-This script:
-- Installs `wireguard-tools`
-- Generates a server key pair
-- Creates `/etc/wireguard/wg0.conf` with iptables NAT for VXLAN traffic
-- Starts `wg-quick@wg0`
-- Outputs the server public key to share with the GPU node
+This creates your server key, starts WireGuard, and prints the **server public key**. Save it — you'll need it for the GPU node.
 
-After the script completes:
-1. Share the server public key with the GPU node
-2. Once the GPU node generates its key pair, add its public key to `/etc/wireguard/wg0.conf`:
-   ```ini
-   [Peer]
-   PublicKey = <gpu-client-public-key>
-   AllowedIPs = 10.8.0.2/32
-   ```
-3. Restart WireGuard: `sudo systemctl restart wg-quick@wg0`
-4. Open port `51820/udp` in the Hetzner firewall
+Then open **port 51820/udp** in the Hetzner firewall.
 
-### Step 2: Set up WireGuard client on GPU node
-
-Generate a key pair on the GPU node and share public keys with the CP node, then create the client config:
+### Step 2 — GPU node (run as root)
 
 ```bash
-# On GPU node — generate key pair
-wg genkey | tee /etc/wireguard/client.key | wg pubkey > /etc/wireguard/client.pub
-chmod 600 /etc/wireguard/client.key
-
-# Copy the CP node's public key to know value for Peer section
-# Copy this node's public key to the CP node's Peer section
-cat /etc/wireguard/client.pub
-```
-
-Create `/etc/wireguard/wg0.conf` on the GPU node:
-
-```ini
-[Interface]
-Address = 10.8.0.2/24
-PrivateKey = <paste-gpu-private-key>
-MTU = 1420
-
-[Peer]
-PublicKey = <cp-node-public-key>
-Endpoint = <hetzner-public-ip>:51820
-AllowedIPs = 10.8.0.0/24
-PersistentKeepalive = 25
-```
-
-Then run the setup script:
-
-```bash
+export CP_NODE_IP=89.167.109.193
 bash case_beta/wireguard-setup.sh
 ```
 
-This script:
-- Installs `wireguard-tools` (if not already installed)
-- Loads the WireGuard kernel module
-- Enables and starts `wg-quick@wg0`
-- Configures UFW to allow Flannel VXLAN, Kubelet, etc. from the WireGuard subnet
+The script will:
+1. Generate a client key pair
+2. **Prompt you for the CP server's public key** (from `/etc/wireguard/server.pub`)
+3. Create `/etc/wireguard/wg0.conf`, start the tunnel, and configure UFW
+4. Print your **GPU client public key**
 
-Verify the tunnel:
+If `CP_NODE_IP` is not set, the script prompts for it interactively.
+
+Copy the GPU public key from the output. Then on the **CP node**, add it to the WireGuard config:
+
+```bash
+sudo sed -i '/^# \[Peer\]/a PublicKey = <paste-GPU-public-key>\nAllowedIPs = 10.8.0.2/32' /etc/wireguard/wg0.conf
+sudo systemctl restart wg-quick@wg0
+```
+
+### Step 3 — Verify the tunnel
+
+From the GPU node:
 
 ```bash
 ping -c 3 10.8.0.1
 ```
 
-### Step 3: Route GPU node IP through WireGuard on CP
+You should see replies (~100-120ms for Hetzner↔Vast.ai).
 
-Add a persistent route so VXLAN encapsulated packets destined for the GPU node flow through the WireGuard tunnel:
-
-```bash
-ip route add 10.0.2.15/32 via 10.8.0.2 dev wg0
-```
-
-Make it persistent (adjust for your distro):
+### Step 4 — Add VXLAN route on CP node
 
 ```bash
-echo "10.0.2.15/32 via 10.8.0.2 dev wg0" >> /etc/iproute2/rt_tables.d/wg.conf
+sudo ip route add 10.0.2.15/32 via 10.8.0.2 dev wg0
 ```
 
-Or add to `/etc/network/interfaces` or your network manager's post-up script.
+To make this persistent across reboots, add `PostUp` to the `[Interface]` section of `/etc/wireguard/wg0.conf`:
 
-### Step 4: Verify bidirectional VXLAN
+```ini
+PostUp = ip route add 10.0.2.15/32 via 10.8.0.2 dev wg0
+```
 
-From the CP node, test direct pod-to-pod connectivity to a pod on the GPU node:
+### Step 5 — Test cross-node pod networking
+
+From the CP node, once the GPU node has joined the K3s cluster:
 
 ```bash
-kubectl run test-pod --image=busybox:1.36 --rm -it --restart=Never \
-  -- nc -zv -w3 <gpu-pod-ip> <port>
+kubectl run test --image=busybox:1.36 --rm -it --restart=Never \
+  -- nc -zv -w3 <any-pod-ip-on-gpu-node> <port>
 ```
 
-If the tunnel is working, the connection succeeds. Verify the envoy proxy starts 3/3 Ready on the GPU node (after applying the EnvoyProxy resource with GPU node scheduling).
+### Firewall reference (GPU node)
 
-### Firewall reference
-
-Ports that must be open on the GPU node (Vast.ai template):
+The setup script opens these ports automatically:
 
 | Port | Protocol | Purpose |
 |------|----------|---------|
-| 8472 | UDP | Flannel VXLAN (allowed from WireGuard subnet only) |
-| 51820 | UDP | WireGuard (outbound from GPU to CP) |
-| 10250 | TCP | Kubelet (allowed from WireGuard subnet only) |
-| 6443 | TCP | K3s API (via public IP, not WireGuard) |
+| 8472 | UDP | Flannel VXLAN (from CP only) |
+| 10250 | TCP | Kubelet |
+| 6443 | TCP | K3s API |
 
 ---
 

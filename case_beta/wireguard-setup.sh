@@ -1,67 +1,80 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# WireGuard GPU Node Setup for Case Beta
-# Run this on the Vast.ai GPU node AFTER creating /etc/wireguard/wg0.conf:
+# WireGuard client setup for Vast.ai GPU node.
+# Run after the CP node setup is done.
 #
-#   1. Generate key pair:  wg genkey | tee /etc/wireguard/client.key | wg pubkey > /etc/wireguard/client.pub
-#   2. Create /etc/wireguard/wg0.conf with the generated private key
-#   3. Share client.pub with the CP node (add to CP's Peer section)
-#   4. Add CP's public key to this node's Peer section in wg0.conf
+# Usage:
+#   export CP_NODE_IP=89.167.109.193
+#   bash case_beta/wireguard-setup.sh
 #
-# This script:
-#   - Installs wireguard-tools
-#   - Loads the WireGuard kernel module
-#   - Enables/starts wg-quick@wg0
-#   - Configures UFW to allow Flannel VXLAN + control plane over WireGuard
-#
-# Prerequisites:
-#   - /etc/wireguard/wg0.conf exists (created manually with keys)
-#   - sudo access
+# If CP_NODE_IP is not set, the script prompts for it.
+
+: "${CP_NODE_IP:=}"
 
 echo "[1/5] Installing wireguard-tools"
-sudo apt-get update -y
-sudo apt-get install -y wireguard-tools resolvconf
-
-echo "[2/5] Loading WireGuard kernel module"
+sudo apt-get update -y && sudo apt-get install -y wireguard-tools
 sudo modprobe wireguard
-lsmod | grep wireguard
 
-echo "[3/5] Enabling resolvconf"
-sudo systemctl enable resolvconf
-sudo systemctl start resolvconf
+echo "[2/5] Generating client keys"
+wg genkey | sudo tee /etc/wireguard/client.key | wg pubkey | sudo tee /etc/wireguard/client.pub
+sudo chmod 600 /etc/wireguard/client.key
 
-echo "[4/5] Starting WireGuard tunnel"
+echo ""
+echo "Your GPU node public key is:"
+echo ""
+sudo cat /etc/wireguard/client.pub
+echo ""
+echo "Copy this key and add it to the CP node's /etc/wireguard/wg0.conf [Peer] section."
+echo "Then restart WireGuard on the CP node: sudo systemctl restart wg-quick@wg0"
+echo ""
+
+read -rp "Paste the CP server's public key (from /etc/wireguard/server.pub): " CP_PUB
+if [ -z "$CP_NODE_IP" ]; then
+  read -rp "CP node public IP (e.g. 89.167.109.193): " CP_NODE_IP
+fi
+
+KEY=$(sudo cat /etc/wireguard/client.key)
+
+sudo tee /etc/wireguard/wg0.conf > /dev/null <<EOF
+[Interface]
+Address = 10.8.0.2/24
+PrivateKey = $KEY
+MTU = 1420
+
+[Peer]
+PublicKey = $CP_PUB
+Endpoint = $CP_NODE_IP:51820
+AllowedIPs = 10.8.0.0/24
+PersistentKeepalive = 25
+EOF
+
+echo "[3/5] Starting WireGuard"
 sudo systemctl enable wg-quick@wg0
 sudo systemctl start wg-quick@wg0
-sudo wg show
 
-echo "  → Verify with: ping -c 3 10.8.0.1"
-
-echo "[5/5] Configuring UFW"
+echo "[4/5] Opening UFW firewall"
 sudo ufw --force enable
-
-# Default policies
 sudo ufw default deny incoming
 sudo ufw default allow outgoing
-
-# SSH (keep access)
 sudo ufw allow 22/tcp
-
-# Allow Flannel VXLAN from WireGuard subnet (cross-node pod networking)
-sudo ufw allow from 10.8.0.0/24 to any port 8472 proto udp
-
-# Allow Kubelet from WireGuard subnet
+sudo ufw allow from $CP_NODE_IP to any port 8472 proto udp
 sudo ufw allow from 10.8.0.0/24 to any port 10250 proto tcp
-
-# Allow K3s API from WireGuard subnet (optional — GPU reaches CP via public IP)
 sudo ufw allow from 10.8.0.0/24 to any port 6443 proto tcp
 
+echo "[5/5] Verifying tunnel"
 echo ""
-echo "=== WireGuard setup complete ==="
-echo "Tunnel status:"
+echo "================================================"
 sudo wg show
+echo "================================================"
 echo ""
-echo "Next step: On the CP node, add a route for the GPU VXLAN endpoint:"
-echo "  sudo ip route add <gpu-internal-ip>/32 via 10.8.0.2 dev wg0"
-echo "  (e.g., sudo ip route add 10.0.2.15/32 via 10.8.0.2 dev wg0)"
+echo "Check connectivity to the CP node:"
+echo ""
+echo "   ping -c 3 10.8.0.1"
+echo ""
+echo "Once the CP has added your public key and restarted wg-quick,"
+echo "ping 10.8.0.1 should work."
+echo ""
+echo "Then on the CP node, add the VXLAN route:"
+echo "   sudo ip route add 10.0.2.15/32 via 10.8.0.2 dev wg0"
+echo ""
