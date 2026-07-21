@@ -11,6 +11,8 @@ CP_ENDPOINT="<CONTROL_PLANE_PUBLIC_IP>:51820"   # will prompt
 CP_PUBLIC_KEY="<CONTROL_PLANE_PUBLIC_KEY>"      # will prompt
 K3S_CONFIG="/etc/rancher/k3s/config.yaml"
 
+: "${K3S_NODE_NAME:=gpu-node-$(hostname)}"
+
 # 1. Install WireGuard
 echo "📦 Installing WireGuard..."
 apt update && apt install -y wireguard

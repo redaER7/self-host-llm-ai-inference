@@ -9,15 +9,15 @@ FastAPI reverse proxy → vLLM on a Vast.ai GPU, with a WireGuard tunnel connect
                               │   Hetzner CX33       │
                               │   K3s control-plane  │
                               │                      │
- Client ──port-forward──→ FastAPI Gateway (hostNetwork)
+ Client ──port-forward──→ FastAPI Gateway (ClusterIP)
                               │       │
-                              │ 10.8.0.1 (wg-easy)
+                              │ 10.10.0.1 (wg0)
                               │       │
                           WireGuard   │
                               │       │
-                              │ 10.8.0.4 (client)
+                              │ 10.10.0.2 (wg0)
                               │       │
-                              │  vLLM (hostNetwork)
+                              │  vLLM (ClusterIP)
                               │       │
                                │   GPU (RTX 3090/4090)
                               └───────┴─────────────┘
@@ -26,18 +26,18 @@ FastAPI reverse proxy → vLLM on a Vast.ai GPU, with a WireGuard tunnel connect
 | Component | Where | Detail |
 |-----------|-------|--------|
 | K3s CP | Hetzner CX33 (4 vCPU, 8 GB) | K3s server, `node-role.kubernetes.io/control-plane` |
-| GPU worker | Vast.ai instance | K3s agent, `gpu-node` label + taint |
-| FastAPI gateway | Hetzner CP | `hostNetwork: true`, reaches vLLM via WireGuard |
-| vLLM | Vast.ai GPU | `hostNetwork: true`, listens on host's WireGuard IP |
-| WireGuard | Hetzner (wg-easy) ↔ Vast.ai (client) | Data-plane tunnel, subnet 10.8.0.0/24 |
+| GPU worker | Vast.ai / Trooper AI | K3s agent, `gpu-node` label + taint |
+| FastAPI gateway | Hetzner CP | Standard pod via `llm-gateway:8200` ClusterIP |
+| vLLM | GPU node | Standard pod via `vllm-service:8100` ClusterIP |
+| WireGuard | Hetzner ↔ GPU (native) | Data-plane tunnel, subnet 10.10.0.0/24 |
 | Client access | Local machine | `kubectl port-forward svc/llm-gateway 8080:8200` |
 
-Both pods use `hostNetwork: true` — the gateway connects to vLLM directly at the GPU node's WireGuard IP (`10.8.0.4:8100`), bypassing ClusterIP routing and avoiding cross-node VXLAN issues.
+Pods use standard Flannel overlay networking. VXLAN traffic flows through the WireGuard tunnel, so cross-node pod-to-pod communication (e.g. FastAPI → vLLM) works via ClusterIP DNS names without `hostNetwork`.
 
 ### WireGuard Notes
 
-- The K3s API uses the **public IP** (`K3S_URL=https://<hetzner-public>:6443`) because wg-easy runs in Docker and owns `10.8.0.1` — the host K3s server is not directly reachable on that IP.
-- The WireGuard tunnel only carries **data-plane** traffic (gateway → vLLM at `10.8.0.4:8100`), which is the latency-sensitive path.
+- The K3s API uses the **WG IP** (`K3S_URL=https://10.10.0.1:6443`) since nodes are on overlapping private networks.
+- The WireGuard tunnel carries both **control-plane** (kubelet, VXLAN) and **data-plane** traffic between the nodes.
 - `dnsPolicy: ClusterFirstWithHostNet` on both pods ensures CoreDNS still resolves service names despite host networking.
 
 ## Requirements

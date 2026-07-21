@@ -14,7 +14,7 @@ set -euo pipefail
 
 : "${K3S_URL:?K3S_URL is required}"
 : "${K3S_TOKEN:?K3S_TOKEN is required}"
-: "${NODE_NAME:=$(gpu-node-$(hostname)}"
+: "${NODE_NAME:=gpu-node-$(hostname)}"
 
 echo "[1/6] Installing K3s agent (v1.33.2+k3s1)"
 curl -sfL https://get.k3s.io | \

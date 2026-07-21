@@ -26,18 +26,10 @@ spec:
       labels:
         app: vllm
     spec:
-      hostNetwork: true
-      dnsPolicy: ClusterFirstWithHostNet
-      dnsConfig:
-        nameservers:
-          - 8.8.8.8
-          - 1.1.1.1
-          - 10.43.0.10  # CoreDNS as fallback
-        options:
-          - name: ndots
-            value: "1"
+      dnsPolicy: ClusterFirst
       nodeSelector:
         node-role.kubernetes.io/gpu-node: "true"
+      hostNetwork: true
       tolerations:
         - key: "gpu-node"
           operator: "Equal"
@@ -63,32 +55,44 @@ spec:
             - "4096"
             - --gpu-memory-utilization
             - "0.9"
+            - --download-dir
+            - /root/.cache/huggingface
           env:
             - name: HF_TOKEN
               valueFrom:
                 secretKeyRef:
                   name: hf-token
                   key: token
+            - name: HF_XET_HIGH_PERFORMANCE
+              value: "1"
+            - name: VLLM_LOGGING_LEVEL
+              value: "INFO"
+            - name: PYTHONUNBUFFERED
+              value: "1"
           ports:
             - containerPort: 8100
-              hostPort: 8100
           resources:
             limits:
               nvidia.com/gpu: "1"
-              memory: "10Gi"
+              memory: "23Gi"
             requests:
               nvidia.com/gpu: "1"
-              memory: "6Gi"
+              memory: "20Gi"
           volumeMounts:
             - name: dshm
               mountPath: /dev/shm
             - name: model-cache
               mountPath: /root/.cache/huggingface
+          #securityContext:
+          #  capabilities:
+          #    add:
+          #      - NET_ADMIN
+          #      - NET_RAW
       volumes:
         - name: dshm
           emptyDir:
             medium: Memory
-            sizeLimit: "2Gi"
+            sizeLimit: "4Gi"
         - name: model-cache
           emptyDir:
-            sizeLimit: "15Gi"
+            sizeLimit: "20Gi"
