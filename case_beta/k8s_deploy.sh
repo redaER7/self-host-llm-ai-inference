@@ -27,15 +27,15 @@ helm upgrade --install cert-manager jetstack/cert-manager \
   --set crds.enabled=true
 
 echo " Creating TLS certificate (envoy-llm.yacodata.com)"
-#kubectl apply -f "${SCRIPT_DIR}/envoy-ai-gateway/certificate.yaml"
+kubectl apply -f "${SCRIPT_DIR}/envoy-ai-gateway/certificate.yaml"
 
 echo ""
 echo "Waiting for certificate to be ready..."
-#kubectl wait --timeout=5m -n envoy-ai-gateway-system certificate/envoy-tls-cert --for=condition=Ready
+kubectl wait --timeout=5m -n envoy-ai-gateway-system certificate/envoy-tls-cert --for=condition=Ready
 
 echo "Creating TLS certificate (chat.yacodata.com)"
-#kubectl apply -f "${SCRIPT_DIR}/../frontend/nextchat/certificate.yaml"
-#kubectl wait --timeout=5m -n frontend certificate/frontend-tls-cert --for=condition=Ready
+kubectl apply -f "${SCRIPT_DIR}/../frontend/nextchat/certificate.yaml"
+kubectl wait --timeout=5m -n frontend certificate/frontend-tls-cert --for=condition=Ready
 
 echo "=== 3. AI Gateway CRDs ==="
 helm upgrade -i aieg-crd oci://docker.io/envoyproxy/ai-gateway-crds-helm \
@@ -66,7 +66,13 @@ helm upgrade --install lws oci://registry.k8s.io/lws/charts/lws \
   --namespace lws-system --create-namespace
 
 echo "=== 8. KServe (monolithic) ==="
-kubectl apply --server-side -f https://github.com/kserve/kserve/releases/download/v0.18.0/kserve.yaml
+curl -sL https://github.com/kserve/kserve/releases/download/v0.18.0/kserve.yaml -o /tmp/kserve.yaml
+kubectl apply --server-side -f /tmp/kserve.yaml || {
+  echo "First apply failed (CRD race), waiting 15s for CRD establishment..."
+  sleep 15
+  kubectl wait --for=condition=Established crd/clusterstoragecontainers.serving.kserve.io --timeout=60s
+  kubectl apply --server-side -f /tmp/kserve.yaml
+}
 
 echo "=== 8b. Gateway API Inference Extension CRDs ==="
 kubectl apply --server-side -f https://github.com/kubernetes-sigs/gateway-api-inference-extension/releases/latest/download/manifests.yaml

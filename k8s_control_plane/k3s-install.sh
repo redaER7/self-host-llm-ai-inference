@@ -34,7 +34,7 @@ k3s kubectl label node "$(hostname)" \
 
 echo "[4/4] K3s control plane ready"
 NODE_IP=$(k3s kubectl get node "$(hostname)" -o jsonpath='{.status.addresses[?(@.type=="ExternalIP")].address}' 2>/dev/null || curl -s ifconfig.me)
-TOKEN=$(sudo cat /var/lib/rancher/k3s/server/node-token 2>/dev/null || sudo cat /var/lib/rafter/server/node-token 2>/dev/null)
+TOKEN=$(sudo cat /var/lib/rancher/k3s/server/node-token 2>/dev/null)
 
 echo ""
 echo "=========================================="
