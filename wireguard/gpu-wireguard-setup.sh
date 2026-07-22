@@ -67,30 +67,5 @@ else
     exit 1
 fi
 
-# 7. Create K3s agent config
-mkdir -p $(dirname $K3S_CONFIG)
-cat > $K3S_CONFIG <<EOF
-node-ip: 10.10.0.2
-EOF
-echo "✅ K3s agent config written."
-
-# 8. Get join token and URL
-read -p "Enter the K3S_TOKEN (from control‑plane): " K3S_TOKEN
-K3S_URL="https://10.10.0.1:6443"
-
-# 9. Join the cluster
-echo "🚀 Joining K3s cluster..."
-export K3S_URL K3S_TOKEN
-curl -sfL https://get.k3s.io | \
-    INSTALL_K3S_VERSION="v1.33.2+k3s1" \
-    K3S_URL="$K3S_URL" \
-    K3S_TOKEN="$K3S_TOKEN" \
-    K3S_NODE_NAME="gpu-node-$(hostname)" \
-    INSTALL_K3S_EXEC="agent --disable-apiserver-lb --with-node-id" \
-    sh -
-
-echo "✅ Installation complete. Waiting for node to be Ready..."
-sleep 10
-
 # test
 timeout 5 curl -v -k https://10.10.0.1:6443
