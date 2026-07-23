@@ -1,53 +1,72 @@
 # WireGuard Setup
 
-Shared WireGuard setup scripts for connecting a Hetzner CP node to one or more Vast.ai GPU nodes.
+Shared WireGuard setup scripts for connecting a Hetzner CP node to one or more remote GPU nodes (Vast.ai / Trooper AI).
 
 ## How it works
 
-Flannel VXLAN (UDP 8472) is used for pod-to-pod networking across nodes. The CP needs to reach each GPU node's Vast.ai internal IP (e.g. `10.0.2.15`), which is private and not routable from the public internet. A WireGuard tunnel makes each GPU reachable.
-
-Additionally, when using `hostNetwork: true` on pods, they communicate directly via the WireGuard IPs (e.g. the FastAPI gateway at `10.8.0.1` reaches vLLM at `10.8.0.2:8100`).
+Flannel VXLAN (UDP 8472) is used for pod-to-pod networking across nodes. Both K3s server and agent must set `--flannel-iface=wg0` so VXLAN packets are sent through the WireGuard tunnel.
 
 ```
-CP node (Hetzner)                GPU node (Vast.ai)
-┌────────────────────┐          ┌──────────────────────┐
-│ wg0 (10.8.0.1) ────┼─ tunnel ─┼─→ wg0 (10.8.0.2)    │
-│                    │ UDP 51820│   (or 10.8.0.3, etc) │
-│ route <gpu-ip>     │          │                      │
-│   via 10.8.0.X     │          │ UFW open: 8472,     │
-└────────────────────┘          │  10250, 6443         │
-                                └──────────────────────┘
+CP node (Hetzner)                GPU node (Vast.ai / Trooper)
+┌────────────────────┐          ┌──────────────────────────┐
+│ wg0 (10.10.0.1) ───┼─ tunnel ─┼──→ wg0 (10.10.0.2)      │
+│ K3s server         │ UDP 51820│   K3s agent              │
+│ flannel-iface=wg0  │          │   flannel-iface=wg0      │
+│ node-ip: 10.10.0.1 │          │   node-ip: 10.10.0.2     │
+└────────────────────┘          └──────────────────────────┘
+```
+
+Both nodes need UFW rules allowing UDP 8472 from the peer's WG subnet:
+```bash
+sudo ufw allow from 10.10.0.0/24 to any port 8472 proto udp
+```
+
+## K3s requirements
+
+**On the CP node** — K3s config at `/etc/rancher/k3s/config.yaml`:
+```yaml
+node-ip: 10.10.0.1
+advertise-address: 10.10.0.1
+node-external-ip: <public-ip>
+flannel-iface: wg0
+```
+
+**On each GPU node** — K3s agent install:
+```bash
+curl -sfL https://get.k3s.io | \
+  INSTALL_K3S_VERSION="v1.33.2+k3s1" \
+  K3S_URL="https://10.10.0.1:6443" \
+  K3S_TOKEN="<node-token>" \
+  K3S_NODE_NAME="gpu-node-$(hostname)" \
+  INSTALL_K3S_EXEC="agent --node-ip=10.10.0.2 --flannel-iface=wg0" sh -
 ```
 
 ## Setup
 
-### 1. CP node (run once)
+### 1. CP node (run first)
 
 ```bash
-bash wireguard/cp-setup.sh
+bash wireguard/cp-wireguard-setup.sh
 ```
 
-- Generates server keys at `/etc/wireguard/server.{key,pub}`
-- Creates `/etc/wireguard/wg0.conf` with NAT for tunnel traffic
+- Generates server keys, creates `/etc/wireguard/wg0.conf`
+- Configures K3s with `node-ip: 10.10.0.1`, `flannel-iface: wg0`
 - Starts `wg-quick@wg0`
-- Prints the **server public key** — share with each GPU node
-- Open port **51820/udp** in the Hetzner firewall
+- Prints the **server public key** and **K3s join token**
 
 ### 2. Each GPU node
 
 ```bash
-export CP_NODE_IP=89.167.109.193
-export WG_ADDRESS=10.8.0.2/24   # unique per GPU: .2, .3, .4, ...
-bash wireguard/gpu-setup.sh
+bash wireguard/gpu-wireguard-setup.sh
 ```
 
 The script:
 - Generates client keys
-- Prompts for the CP server's public key (reads `CP_NODE_IP` from env var or prompts)
-- Creates `/etc/wireguard/wg0.conf` with the **return route** (`PostUp`)
-- Starts `wg-quick@wg0`
-- Configures UFW (Flannel VXLAN + control plane ports)
-- Prints the **GPU client public key**
+- Prompts for CP's public key and public IP
+- Creates `/etc/wireguard/wg0.conf`, starts WireGuard
+- Verifies tunnel with `ping 10.10.0.1`
+
+Install K3s agent separately (see above).
 
 ### 3. Add GPU peer to CP config
 
@@ -56,7 +75,7 @@ On the CP, add each GPU's public key to `/etc/wireguard/wg0.conf`:
 ```ini
 [Peer]
 PublicKey = <gpu-public-key>
-AllowedIPs = 10.8.0.2/32
+AllowedIPs = 10.10.0.2/32
 ```
 
 Then restart: `sudo systemctl restart wg-quick@wg0`
@@ -65,16 +84,13 @@ Then restart: `sudo systemctl restart wg-quick@wg0`
 
 ```bash
 # From GPU node
-ping -c 3 10.8.0.1
+ping -c 3 10.10.0.1
 
 # From CP node
-ping -c 3 10.8.0.2
-```
+ping -c 3 10.10.0.2
 
-### 5. VXLAN route on CP (if using VXLAN)
-
-```bash
-sudo ip route add <gpu-vast-ip>/32 via 10.8.0.2 dev wg0
+# Cross-node Flannel pod connectivity
+kubectl run -it --rm debug --image=busybox --restart=Never -- ping -c 3 10.10.0.2
 ```
 
 ## Multi-GPU example
@@ -83,36 +99,36 @@ CP config with two GPU peers:
 
 ```ini
 [Interface]
-Address = 10.8.0.1/24
+Address = 10.10.0.1/24
 ListenPort = 51820
 PrivateKey = <cp-private-key>
 MTU = 1420
-PostUp = iptables -A FORWARD -i wg0 -j ACCEPT; iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
-PostDown = iptables -D FORWARD -i wg0 -j ACCEPT; iptables -t nat -D POSTROUTING -o eth0 -j MASQUERADE
 
 [Peer]
-# case_beta GPU
-PublicKey = <beta-pub-key>
-AllowedIPs = 10.8.0.2/32
+# GPU 1
+PublicKey = <gpu1-pub-key>
+AllowedIPs = 10.10.0.2/32
 
 [Peer]
-# case_alpha GPU
-PublicKey = <alpha-pub-key>
-AllowedIPs = 10.8.0.3/32
+# GPU 2
+PublicKey = <gpu2-pub-key>
+AllowedIPs = 10.10.0.3/32
 ```
 
-## Firewall reference (GPU node)
+## Firewall reference (both nodes)
 
-| Port | Protocol | Purpose |
-|------|----------|---------|
-| 8472 | UDP | Flannel VXLAN (from CP only) |
-| 10250 | TCP | Kubelet |
-| 6443 | TCP | K3s API |
-| 22 | TCP | SSH |
+| Port | Protocol | From | Purpose |
+|------|----------|------|---------|
+| 51820 | UDP | Anywhere | WireGuard tunnel |
+| 8472 | UDP | 10.10.0.0/24 | Flannel VXLAN |
+| 6443 | TCP | 10.10.0.0/24 | K3s API |
+| 10250 | TCP | 10.10.0.0/24 | Kubelet |
+| 22 | TCP | Anywhere | SSH |
 
 ## Files
 
 | File | Purpose |
 |------|---------|
-| `cp-setup.sh` | WireGuard server setup (run on Hetzner CP) |
-| `gpu-setup.sh` | WireGuard client setup (run on each GPU node) |
+| `cp-wireguard-setup.sh` | WireGuard + K3s config on CP node |
+| `gpu-wireguard-setup.sh` | WireGuard setup on GPU node |
+| `trooper-gpu-port-forward.sh` | Optional: kubelet port forwarding for Trooper AI |

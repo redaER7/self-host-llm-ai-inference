@@ -17,3 +17,5 @@ spec:
               operator: "Equal"
               value: "true"
               effect: "NoSchedule"
+      envoyService:
+        type: NodePort

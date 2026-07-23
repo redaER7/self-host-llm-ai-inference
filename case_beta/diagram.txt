@@ -1,0 +1,322 @@
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                         INTERNET / DNS                                       │
+│                                                                              │
+│  nextchat.yacodata.com ── DNS ──► 89.167.109.193 (Hetzner CP public IP)     │
+│  envoy-llm.yacodata.com ── DNS ──► 89.167.109.193 (Hetzner CP public IP)    │
+│  LLMInferenceService URL ─────────► http://89.167.109.193/beta/qwen-7b      │
+└─────────────────────────────────┬────────────────────────────────────────────┘
+                                  │
+┌─────────────────────────────────▼────────────────────────────────────────────┐
+│  BROWSER / API CLIENT                                                        │
+│                                                                              │
+│  Opens https://nextchat.yacodata.com                                         │
+│    → loads NextChat React UI                                                 │
+│    → UI calls https://envoy-llm.yacodata.com:30080/v1/chat/completions       │
+│                                                                              │
+│  OR (internal cluster pod):                                                  │
+│    curl http://kserve-gateway/envoy-gateway-system.svc/beta/qwen-7b/...     │
+│                                                                              │
+│  KServe Gateway is ClusterIP (internal-only). Public access is via           │
+│  https://envoy-llm.yacodata.com:30080 (AI Gateway with TLS).                │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│  HETZNER CP NODE  (10.10.0.1, public IP: 89.167.109.193)                    │
+│                                                                              │
+│  ┌──────────────────────────────────────────────────────────────────────┐    │
+│  │  NEXTCHAT FRONTEND                                                    │    │
+│  │  NodePort :30081 → Service frontend/nextchat (443/https) → Pod :3000  │    │
+│  │  TLS cert: chat.yacodata.com                                          │    │
+│  │  BASE_URL: https://envoy-llm.yacodata.com:30080/v1                    │    │
+│  │  (the React app runs in the user's browser, calls envoy-llm directly) │    │
+│  └──────────────────────────────────────────────────────────────────────┘    │
+│                                                                              │
+│  ┌──────────────────────────────────────────────────────────────────────┐    │
+│  │  KSERVE GATEWAY (ClusterIP, internal-only)                            │    │
+│  │  Gateway: kserve-ingress-gateway (kserve namespace)                  │    │
+│  │  Controller: envoy-gateway (envoy-gateway-system)                    │    │
+│  │  EnvoyProxy: CP node, service type ClusterIP                         │    │
+│  │  Protocol: HTTP (no TLS, not publicly exposed)                       │    │
+│  │                                                                      │    │
+│  │  HTTPRoute qwen-7b-kserve-route (beta namespace)                     │    │
+│  │  ├── /beta/qwen-7b/v1/chat/completions ─ URLRewrite ─┐              │    │
+│  │  ├── /beta/qwen-7b/v1/completions      ─ URLRewrite ─┤              │    │
+│  │  ├── /beta/qwen-7b/v1/responses        ─ URLRewrite ─┤              │    │
+│  │  ├── /beta/qwen-7b/v1/messages         ─ URLRewrite ─┘              │    │
+│  │  │                               backendRef: InferencePool :8000     │    │
+│  │  └── /beta/qwen-7b (catch-all) ─ URLRewrite ─ Service :8000         │    │
+│  └─────────────────────────────┬────────────────────────────────────────┘    │
+│                                │                                             │
+│  ┌─────────────────────────────▼────────────────────────────────────────┐    │
+│  │  EPP POD (Endpoint Picker Pod)                                      │    │
+│  │  Deployment: qwen-7b-kserve-router-scheduler (CP node)              │    │
+│  │  Image: ghcr.io/llm-d/llm-d-router-endpoint-picker:v0.9.0           │    │
+│  │                                                                      │    │
+│  │  Ports:                                                              │    │
+│  │  ├── 9002 gRPC (inference routing)                                  │    │
+│  │  ├── 9003 gRPC health                                               │    │
+│  │  ├── 9090 metrics                                                   │    │
+│  │  └── 5557 ZMQ                                                       │    │
+│  │                                                                      │    │
+│  │  Scheduler plugins (from endpoint-picker-config ConfigMap):          │    │
+│  │  ├── prefix-cache-scorer (prefer cached prefixes)                   │    │
+│  │  ├── load-aware-scorer (prefer least-loaded, threshold: 100)        │    │
+│  │  └── max-score-picker (pick highest-scored target)                  │    │
+│  │                                                                      │    │
+│  │  ├── Service qwen-7b-epp-service (ClusterIP :9002)                  │    │
+│  │  └── InferencePool qwen-7b-inference-pool                           │    │
+│  └─────────────────────────────┬────────────────────────────────────────┘    │
+│                                │ gRPC route to vLLM (:8000)                   │
+│                                │ via InferencePool selector                    │
+└────────────────────────────────┼──────────────────────────────────────────────┘
+                                 │ Flannel VXLAN over WireGuard
+                                 │ WG peers: 10.10.0.1 ── 10.10.0.2 (31ms)
+                                 │ Pod CIDR: 10.42.0.0/16
+                                 ▼
+┌──────────────────────────────────────────────────────────────────────────────┐
+│  TROOPER AI GPU NODE  (10.10.0.2)                                           │
+│                                                                              │
+│  ┌──────────────────────────────────────────────────────────────────────┐    │
+│  │  AI GATEWAY PROXY (NodePort :30080)                                  │    │
+│  │  Gateway: ai-gateway (envoy-ai-gateway-system namespace)             │    │
+│  │  Controller: envoy-gateway (envoy-gateway-system)                    │    │
+│  │  EnvoyProxy: GPU node, LoadBalancer (pending) → patched to NodePort  │    │
+│  │  Protocol: HTTPS (:443), TLS cert: envoy-llm.yacodata.com           │    │
+│  │  CORS: chat.yacodata.com, *.yacodata.com, localhost:3000/8000       │    │
+│  │                                                                      │    │
+│  │  AIGatewayRoute qwen-route (beta namespace)                          │    │
+│  │  ├── header: x-ai-eg-model: qwen2.5-7b                              │    │
+│  │  │   backendRef: InferencePool qwen-7b-inference-pool :8000          │    │
+│  │  └── llmRequestCosts: InputToken, OutputToken, TotalToken            │    │
+│  └─────────────────────────────┬────────────────────────────────────────┘    │
+│                                │                                             │
+│  ┌─────────────────────────────▼────────────────────────────────────────┐    │
+│  │  VLLM WORKER POD (hostNetwork, binds 10.10.0.2:8000)                │    │
+│  │  Image: ghcr.io/llm-d/llm-d-cuda:v0.8.0                             │    │
+│  │  GPU: nvidia.com/gpu: 1                                             │    │
+│  │  Memory: 23Gi limit / 21Gi request                                  │    │
+│  │  Node: node-role.kubernetes.io/gpu-node: true                       │    │
+│  │  Toleration: gpu-node=true:NoSchedule                               │    │
+│  │                                                                      │    │
+│  │  Labels:                                                             │    │
+│  │  ├── kserve.io/component: workload                                  │    │
+│  │  ├── app.kubernetes.io/name: qwen-7b                                │    │
+│  │  └── llm-d.ai/role: both (prefill + decode in same pod)             │    │
+│  │                                                                      │    │
+│  │  Init container:                                                     │    │
+│  │  ├── storage-initializer (kserve/storage-initializer:v0.18.0)       │    │
+│  │  ├── downloads hf://Qwen/Qwen2.5-7B-Instruct to /mnt/models        │    │
+│  │  └── memory: 2Gi request / 4Gi limit                                │    │
+│  │                                                                      │    │
+│  │  Volumes:                                                            │    │
+│  │  ├── model-cache: hostPath /var/lib/kserve/model-cache              │    │
+│  │  │   (persists across pod restarts, avoids re-download)             │    │
+│  │  ├── dshm: emptyDir Memory 1Gi (/dev/shm)                           │    │
+│  │  ├── home: emptyDir (/home)                                         │    │
+│  │  ├── tmp-dir: emptyDir (/tmp)                                       │    │
+│  │  └── tls-certs: secret qwen-7b-kserve-self-signed-certs            │    │
+│  │                                                                      │    │
+│  │  Endpoints (OpenAI-compatible):                                      │    │
+│  │  ├── /v1/chat/completions                                           │    │
+│  │  ├── /v1/completions                                                │    │
+│  │  ├── /v1/models                                                     │    │
+│  │  ├── /v1/responses                                                  │    │
+│  │  ├── /v1/messages                                                   │    │
+│  │  └── /health                                                        │    │
+│  │                                                                      │    │
+│  │  ├── Service: qwen-7b-kserve-workload-svc (ClusterIP :8000)         │    │
+│  │  └── Secret: qwen-7b-kserve-self-signed-certs                       │    │
+│  └──────────────────────────────────────────────────────────────────────┘    │
+│                                                                              │
+│  ┌──────────────────────────────────────────────────────────────────────┐    │
+│  │  AI GATEWAY CONTROLLER                                               │    │
+│  │  Deployment: ai-gateway-controller (envoy-ai-gateway-system)         │    │
+│  │  Manages APISchema, Backend, BackendSecurityPolicy, AIGatewayRoute   │    │
+│  │  Service: ai-gateway-controller :9443, :1063, :8080, :18002         │    │
+│  └──────────────────────────────────────────────────────────────────────┘    │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+
+                    ╔══════════════════════════════════════════════════════════╗
+                    ║              KUBERNETES CONTROL PLANE                    ║
+                    ║                                                         ║
+                    ║  GATEWAYS:                                              ║
+                    ║  ├── GatewayClass: envoy                                ║
+                    ║  │   controller: gateway.envoyproxy.io/gatewayclass-    ║
+                    ║  │   controller                                         ║
+                    ║  │                                                      ║
+                    ║  ├── Gateway: kserve-ingress-gateway (kserve)           ║
+                    ║  │   class: envoy, HTTP :80, PROGRAMMED=True            ║
+                     ║  │   EnvoyProxy: CP node, service type ClusterIP        ║
+                     ║  │   Used by: HTTPRoute qwen-7b-kserve-route            ║
+                    ║  │                                                      ║
+                    ║  └── Gateway: ai-gateway (envoy-ai-gateway-system)      ║
+                    ║      class: envoy, HTTPS :443, PROGRAMMED=True          ║
+                    ║      TLS: envoy-llm.yacodata.com                        ║
+                    ║      EnvoyProxy: GPU node, service type LoadBalancer    ║
+                    ║      Used by: AIGatewayRoute qwen-route                 ║
+                    ║                                                         ║
+                    ║  BUILT-IN CONFIGS (kserve namespace):                   ║
+                    ║  ├── kserve-config-llm-scheduler (EPP container spec)   ║
+                    ║  ├── kserve-config-llm-scheduler-latency-predictor      ║
+                    ║  ├── kserve-config-llm-template (vLLM spec)            ║
+                    ║  ├── kserve-config-llm-router-route (HTTPRoute rules)  ║
+                    ║  ├── kserve-config-llm-tokenizer                       ║
+                    ║  ├── kserve-config-llm-tracing                         ║
+                    ║  ├── kserve-config-llm-worker-data-parallel            ║
+                    ║  ├── kserve-config-llm-decode-template                 ║
+                    ║  ├── kserve-config-llm-decode-worker-data-parallel     ║
+                    ║  ├── kserve-config-llm-prefill-template                ║
+                    ║  └── kserve-config-llm-prefill-worker-data-parallel    ║
+                    ║                                                         ║
+                    ║  USER CONFIGS (beta namespace):                         ║
+                    ║  ├── qwen-model: hf://Qwen/Qwen2.5-7B-Instruct         ║
+                    ║  ├── qwen-workload: hostNetwork, GPU node, replicas=1  ║
+                    ║  │   hostPath model-cache, llm-d-cuda image            ║
+                    ║  ├── qwen-router: route/gateway/scheduler stubs        ║
+                    ║  └── endpoint-picker-config: ConfigMap (scheduler      ║
+                    ║      plugins for prefix-cache, load-aware scoring)     ║
+                    ║                                                         ║
+                    ║  LLMInferenceService: qwen-7b (beta namespace)         ║
+                    ║  ├── baseRefs: qwen-model, qwen-workload, qwen-router  ║
+                    ║  └── Status: Ready=False, Reason: WaitingForGateway    ║
+                    ║      (InferencePool not yet accepted by EG controller)  ║
+                    ║                                                         ║
+                    ║  CONTROLLERS:                                           ║
+                    ║  ├── envoy-gateway (envoy-gateway-system)              ║
+                    ║  │   Manages GatewayClass, Gateway, EnvoyProxy         ║
+                    ║  │   Creates/manages envoy proxy pods & services       ║
+                    ║  │   Extension API hooks → ai-gateway-controller       ║
+                    ║  │   InferencePool support (via extension manager)     ║
+                    ║  │                                                      ║
+                    ║  ├── ai-gateway-controller (envoy-ai-gateway-system)   ║
+                    ║  │   Manages AIGatewayRoute, APISchema, Backend        ║
+                    ║  │   Extension hooks: xdsTranslator post Translation,  ║
+                    ║  │   Cluster, Route, Secret                            ║
+                    ║  │                                                      ║
+                    ║  ├── llmisvc-controller-manager (kserve)               ║
+                    ║  │   Orchestrates LLMInferenceService lifecycle        ║
+                    ║  │   Composes baseRefs configs with built-in configs   ║
+                    ║  │   Creates: Deployment, Service, HTTPRoute, Secret   ║
+                    ║  │                                                      ║
+                    ║  ├── kserve-controller-manager (kserve)                ║
+                    ║  │   Manages standard InferenceService lifecycle       ║
+                    ║  │                                                      ║
+                    ║  └── kserve-localmodel-controller (kserve)             ║
+                    ║      Manages LocalModelCache resources                  ║
+                    ║                                                         ║
+                    ║  INFRASTRUCTURE:                                        ║
+                    ║  ├── K3s v1.33.2 (control-plane + agent)               ║
+                    ║  ├── Flannel VXLAN over WireGuard (wg0)                ║
+                    ║  │   WG subnet: 10.10.0.0/24                           ║
+                    ║  │   WG peers: CP 10.10.0.1 ←→ GPU 10.10.0.2 (31ms)   ║
+                    ║  │   Pod CIDR: 10.42.0.0/16                            ║
+                    ║  ├── UFW: UDP 8472 allowed between WG IPs             ║
+                    ║  ├── cert-manager (cert-manager namespace)             ║
+                    ║  ├── LWS Operator (lws-system namespace)              ║
+                    ║  ├── Gateway API CRDs (standard + inference extension) ║
+                    ║  └── Helm charts: prometheus-community/kube-prometheus ║
+                    ║      + dcgm-exporter (monitoring namespace)            ║
+                    ╚══════════════════════════════════════════════════════════╝
+
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                             REQUEST FLOWS                                   ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+FLOW 1: INTERNAL API CALL (curl within cluster via KServe Gateway)
+══════════════════════════════════════════════════════════════════════════════
+
+  # KServe Gateway is ClusterIP (not publicly exposed).
+  # From within the cluster:
+  curl http://envoy-kserve-kserve-ingress-gateway-...envoy-gateway-system.svc/beta/qwen-7b/v1/chat/completions \
+    -d '{"model":"qwen2.5-7b","messages":[{"role":"user","content":"hi"}]}'
+
+  1. Request arrives at KServe Gateway proxy (ClusterIP, CP node)
+  2. kube-proxy routes to envoy-kserve-* pod (Envoy Gateway proxy on CP)
+  3. Envoy matches HTTPRoute qwen-7b-kserve-route:
+     PathPrefix /beta/qwen-7b/v1/chat/completions
+  4. URLRewrite filter: /beta/qwen-7b/v1/chat/completions → /v1/chat/completions
+  5. backendRef: InferencePool qwen-7b-inference-pool :8000
+  6. EPP pod receives gRPC request, applies scheduler plugins:
+     a. prefix-cache-scorer (check cached KV cache for prefix match)
+     b. load-aware-scorer (check load, threshold 100)
+     c. max-score-picker (select best target)
+  7. Forwards to vLLM worker pod on GPU node (10.10.0.2:8000)
+  8. vLLM processes inference on GPU, streams response back
+
+  Catch-all (non-scheduler endpoints like /v1/models, /health):
+  → backendRef: Service qwen-7b-kserve-workload-svc :8000
+  → directly to vLLM pod (bypasses EPP)
+
+
+FLOW 2: NEXTCHAT CHAT UI (via AI Gateway)
+══════════════════════════════════════════════════════════════════════════════
+
+  1. User opens https://nextchat.yacodata.com → CP:30081 → NextChat pod
+  2. Browser loads React chat UI
+  3. NextChat calls API from browser:
+     POST https://envoy-llm.yacodata.com:30080/v1/chat/completions
+     Header: x-ai-eg-model: qwen2.5-7b
+  4. DNS → 89.167.109.193:30080 → hits CP node
+  5. kube-proxy routes to envoy-ai-gateway-* pod (AI Gateway proxy on GPU)
+  6. TLS termination at pod (cert: envoy-llm.yacodata.com)
+  7. Envoy matches AIGatewayRoute qwen-route:
+     header x-ai-eg-model: qwen2.5-7b → InferencePool qwen-7b-inference-pool
+  8. Same EPP → vLLM flow as Flow 1
+
+  Note: request goes CP:30080 → Flannel → GPU:AI-Gateway-Proxy
+  (the AI Gateway proxy pod runs on the GPU node per EnvoyProxy)
+
+
+FLOW 3: INTERNAL POD-TO-POD (cross-node via Flannel over WireGuard)
+══════════════════════════════════════════════════════════════════════════════
+
+  CP Node (10.10.0.1) ─────────────────────────── GPU Node (10.10.0.2)
+                  │                                    │
+  EPP Pod         │  gRPC :8000                        │ vLLM Worker Pod
+  10.42.0.43      │  ──────────────────────────────────► 10.10.0.2:8000
+                  │  (via InferencePool selector)       │ (hostNetwork,
+                  │  Flannel VXLAN over WireGuard       │  binds directly to
+                  │  UDP 8472                           │  GPU node IP)
+                  │                                    │
+  kserve-ingress   │  HTTP/HTTPS                        │ AI Gateway Proxy
+  Gateway Proxy    │  ──────────────────────────────────► 10.42.4.10
+  10.42.0.x       │  (via Flannel/WireGuard)           │ (GPU node Pod IP)
+
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                        KEY CONFIG PARAMETERS                                ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+WireGuard:
+  Subnet:       10.10.0.0/24
+  CP node:      10.10.0.1 (Hetzner)
+  GPU node:     10.10.0.2 (Trooper AI)
+  Ping RTT:     ~31ms
+  Interface:    wg0
+
+Flannel:
+  Backend:      VXLAN
+  Interface:    wg0 (bound to WireGuard)
+  Pod CIDR:     10.42.0.0/16
+  UDP port:     8472
+
+KServe Gateway (envoy-gateway-system):
+  Service:      envoy-kserve-kserve-ingress-gateway-*
+  Type:         ClusterIP (internal-only, no NodePort)
+  Listener:     HTTP :80
+  EnvoyProxy:   kserve-ingress-proxy → CP node
+
+AI Gateway (envoy-ai-gateway-system):
+  Service:      envoy-*-ai-gateway-*
+  Type:         LoadBalancer (pending) → NodePort :30080
+  Listener:     HTTPS :443 (TLS envoy-llm.yacodata.com)
+  EnvoyProxy:   gpu-node-proxy → GPU node
+
+NextChat Frontend (frontend namespace):
+  Service:      nextchat
+  Type:         NodePort → 443:30081
+  Container:    :3000 (chatgpt-next-web)
+  TLS cert:     chat.yacodata.com
+  BASE_URL:     https://envoy-llm.yacodata.com:30080/v1

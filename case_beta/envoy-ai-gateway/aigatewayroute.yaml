@@ -14,7 +14,7 @@ spec:
         - headers:
             - type: Exact
               name: x-ai-eg-model
-              value: qwen2.5-7b
+              value: qwen2.5-3b
       backendRefs:
         - group: inference.networking.k8s.io
           kind: InferencePool

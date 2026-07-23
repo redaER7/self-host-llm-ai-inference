@@ -512,10 +512,10 @@ curl -X POST https://envoy-llm.yacodata.com:30080/v1/chat/completions \
 | Aspect | alpha | beta |
 |--------|-------|------|
 | Gateway | FastAPI (custom, CP node) | Envoy AI Gateway (GPU node) |
-| Data plane | hostNetwork + direct WireGuard IP | Flannel VXLAN over WireGuard |
+| Data plane | Flannel VXLAN over WireGuard | Flannel VXLAN over WireGuard |
 | Inference latency | Cross-node hop over WireGuard | Local to GPU node (no hop) |
-| Control plane | WireGuard for data only | WireGuard for Flannel VXLAN |
-| Setup complexity | WireGuard + UFW + hostNetwork | WireGuard + UFW + route (no hostNetwork) |
+| Control plane | WireGuard for Flannel VXLAN | WireGuard for Flannel VXLAN |
+| Setup complexity | WireGuard + UFW + flannel-iface | WireGuard + UFW + flannel-iface + retry |
 | Model deployment | plain Deployment | KServe LLMInferenceService |
 | Model weights | HF download at startup | Baked in Docker image |
 | Router | None (kube-proxy) | llm-d (cache-aware) |

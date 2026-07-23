@@ -26,16 +26,16 @@ helm upgrade --install cert-manager jetstack/cert-manager \
   --version v1.18.0 \
   --set crds.enabled=true
 
-echo " Creating TLS certificate (envoy-llm.yacodata.com)"
-kubectl apply -f "${SCRIPT_DIR}/envoy-ai-gateway/certificate.yaml"
+#echo " Creating TLS certificate (envoy-llm.yacodata.com)"
+#kubectl apply -f "${SCRIPT_DIR}/envoy-ai-gateway/certificate.yaml"
 
 echo ""
-echo "Waiting for certificate to be ready..."
-kubectl wait --timeout=5m -n envoy-ai-gateway-system certificate/envoy-tls-cert --for=condition=Ready
+#echo "Waiting for certificate to be ready..."
+#kubectl wait --timeout=5m -n envoy-ai-gateway-system certificate/envoy-tls-cert --for=condition=Ready
 
 echo "Creating TLS certificate (chat.yacodata.com)"
-kubectl apply -f "${SCRIPT_DIR}/../frontend/nextchat/certificate.yaml"
-kubectl wait --timeout=5m -n frontend certificate/frontend-tls-cert --for=condition=Ready
+#kubectl apply -f "${SCRIPT_DIR}/../frontend/nextchat/certificate.yaml"
+#kubectl wait --timeout=5m -n frontend certificate/frontend-tls-cert --for=condition=Ready
 
 echo "=== 3. AI Gateway CRDs ==="
 helm upgrade -i aieg-crd oci://docker.io/envoyproxy/ai-gateway-crds-helm \
@@ -74,6 +74,15 @@ kubectl apply --server-side -f /tmp/kserve.yaml || {
   kubectl apply --server-side -f /tmp/kserve.yaml
 }
 
+echo "=== 8a. Built-in LLMInferenceServiceConfigs ==="
+for f in config-llm-scheduler config-llm-template config-llm-router-route \
+  config-llm-worker-data-parallel config-llm-decode-template \
+  config-llm-decode-worker-data-parallel config-llm-prefill-template \
+  config-llm-prefill-worker-data-parallel config-llm-tokenizer \
+  config-llm-tracing config-llm-scheduler-latency-predictor; do
+  kubectl apply -n kserve -f "https://raw.githubusercontent.com/kserve/kserve/v0.18.0/config/llmisvcconfig/${f}.yaml"
+done
+
 echo "=== 8b. Gateway API Inference Extension CRDs ==="
 kubectl apply --server-side -f https://github.com/kubernetes-sigs/gateway-api-inference-extension/releases/latest/download/manifests.yaml
 
@@ -85,8 +94,9 @@ helm upgrade --install eg oci://docker.io/envoyproxy/gateway-helm --version v1.8
 kubectl rollout restart -n envoy-gateway-system deployment/envoy-gateway
 kubectl wait --timeout=2m -n envoy-gateway-system deployment/envoy-gateway --for=condition=Available
 
-echo "=== 9. Re-apply Gateway (after KServe CRDs) ==="
+echo "=== 9. Re-apply Gateways (after KServe CRDs) ==="
 kubectl apply -f "${SCRIPT_DIR}/envoy-ai-gateway/gateway.yaml"
+kubectl apply -f "${SCRIPT_DIR}/envoy-ai-gateway/kserve-gateway.yaml"
 
 echo "=== 10. Monitoring ==="
 kubectl create namespace monitoring --dry-run=client -o yaml | kubectl apply -f -
@@ -108,21 +118,10 @@ kubectl apply -f "${SCRIPT_DIR}/kserve/llm-inferenceservice.yaml"
 echo "=== 13. Envoy AI Gateway AIGatewayRoute ==="
 kubectl apply -f "${SCRIPT_DIR}/envoy-ai-gateway/aigatewayroute.yaml"
 
-echo "=== 14. Expose Envoy Gateway via NodePort ==="
-ENVOY_SVC=$(kubectl get svc -n envoy-gateway-system \
-  -l gateway.envoyproxy.io/owning-gateway-namespace=envoy-ai-gateway-system,gateway.envoyproxy.io/owning-gateway-name=ai-gateway \
-  -o jsonpath='{.items[0].metadata.name}')
-echo "Found Envoy Gateway proxy service: $ENVOY_SVC"
-
-echo "Exposing via NodePort 30080..."
-kubectl patch service "$ENVOY_SVC" -n envoy-gateway-system \
-  --type=json \
-  -p='[{"op":"replace","path":"/spec/type","value":"NodePort"},{"op":"replace","path":"/spec/ports/0/nodePort","value":30080}]'
-
-echo "=== 15. CORS policy ==="
+echo "=== 14. CORS policy ==="
 kubectl apply -f "${SCRIPT_DIR}/envoy-ai-gateway/cors-policy.yaml"
 
-echo "=== 16. NextChat frontend ==="
+echo "=== 15. NextChat frontend ==="
 kubectl create namespace frontend --dry-run=client -o yaml | kubectl apply -f -
 kubectl apply -f "${SCRIPT_DIR}/../frontend/nextchat/"
 
