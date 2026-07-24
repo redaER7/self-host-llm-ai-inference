@@ -7,4 +7,3 @@ spec:
   baseRefs:
     - name: qwen-model
     - name: qwen-workload
-    - name: qwen-router

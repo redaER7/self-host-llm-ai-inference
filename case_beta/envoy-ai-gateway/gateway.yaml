@@ -13,13 +13,25 @@ spec:
       kind: EnvoyProxy
       name: ai-gateway-proxy
   listeners:
-    - name: https
+    - name: llm-https
       protocol: HTTPS
       port: 443
+      hostname: llm.yacodata.com
       tls:
         mode: Terminate
         certificateRefs:
           - name: envoy-tls-cert
+      allowedRoutes:
+        namespaces:
+          from: All
+    - name: chat-https
+      protocol: HTTPS
+      port: 443
+      hostname: chat.yacodata.com
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - name: chat-tls-cert
       allowedRoutes:
         namespaces:
           from: All
