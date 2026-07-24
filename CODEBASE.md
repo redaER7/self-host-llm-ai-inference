@@ -1,7 +1,7 @@
 # Codebase
 
 Self-host LLM inference on rented GPUs using K3s, Envoy AI Gateway, KServe + llm-d + vLLM.
-Control plane on Hetzner Cloud, GPU workers on Vast.ai.
+Control plane on Hetzner Cloud, GPU workers on Vast.ai / Trooper AI.
 
 **Tags**: `k3s` `kserve` `vllm` `llm-d` `envoy-ai-gateway` `hetzner` `vast-ai` `gpu-inference` `self-hosted-llm`
 
@@ -12,16 +12,16 @@ Control plane on Hetzner Cloud, GPU workers on Vast.ai.
 All inference components co-located on the GPU node — inference data plane stays local, no cross-node hops for vLLM responses. Cross-node control plane traffic (Flannel VXLAN) flows over a WireGuard tunnel when CP and GPU are on different networks (e.g., Hetzner + Vast.ai).
 
 ```
-Browser ──https──→ envoy-llm.yacodata.com:30080
+Browser ──https──→ llm.yacodata.com (443)
                      ↓
-             Envoy Gateway proxy  (GPU node, NodePort 30080)
+             Envoy Gateway proxy  (CP node, NodePort 30080)
                      ↓
              Envoy AI Gateway     (token metering, routing)
                      ↓
+             InferencePool "qwen-7b-inference-pool"
+                     ↓
              KServe LLMInferenceService "qwen-7b"
-               ├── llm-d Router   (cache-aware endpoint picker)
-               ├── EPP Scheduler  (prefix-cache w:2.0 + load-aware w:1.0)
-               └── vLLM pod       (Qwen/Qwen2.5-7B-Instruct, RTX 3090)
+               └── vLLM pod       (Qwen/Qwen2.5-7B-Instruct, GPU)
 
 Frontend (CP node):
 Browser ──https──→ chat.yacodata.com
@@ -32,7 +32,7 @@ Browser ──https──→ chat.yacodata.com
 **Two public DNS records**:
 | Record | Target | Purpose |
 |--------|--------|---------|
-| `envoy-llm.yacodata.com` | Vast.ai public IP | TLS SNI for Envoy Gateway |
+| `llm.yacodata.com` | GPU node public IP | TLS SNI for Envoy Gateway |
 | `chat.yacodata.com` | Hetzner CP IP | NextChat frontend |
 
 ---
@@ -55,9 +55,11 @@ Browser ──https──→ chat.yacodata.com
 │   ├── envoy-ai-gateway/              # Envoy Gateway + AI Gateway resources
 │   │   ├── gatewayclass.yaml          # GatewayClass "envoy"
 │   │   ├── gateway.yaml               # Gateway "ai-gateway" (HTTPS, TLS, KServe label)
-│   │   ├── envoyproxy.yaml            # GPU node scheduling for proxy pods
-│   │   ├── certificate.yaml           # ClusterIssuer + Certificate (envoy-llm.yacodata.com)
+│   │   ├── envoyproxy.yaml            # CP node scheduling for proxy pods, container-level resources
+│   │   ├── certificate.yaml           # ClusterIssuer + Certificate (llm.yacodata.com)
 │   │   ├── aigatewayroute.yaml        # AIGatewayRoute: header match → InferencePool
+│   │   ├── backend.yaml               # Backend + AIServiceBackend to InferencePool
+│   │   ├── rate-limit.yaml            # BackendTrafficPolicy targeting HTTPRoute
 │   │   ├── cors-policy.yaml           # SecurityPolicy: CORS for NextChat
 │   │   ├── envoy-gateway-values.yaml  # Helm values: AI Gateway hooks, controller FQDN
 │   │   └── envoy-gateway-values-addon.yaml  # Helm values: InferencePool backend resource
@@ -65,7 +67,7 @@ Browser ──https──→ chat.yacodata.com
 │   ├── kserve/                        # KServe resources
 │   │   ├── qwen-model.yaml            # LLMInferenceServiceConfig: model uri + name
 │   │   ├── qwen-workload.yaml         # LLMInferenceServiceConfig: image, GPU, scheduling
-│   │   ├── qwen-router.yaml           # LLMInferenceServiceConfig: router/scheduler {}
+│   │   ├── qwen-router.yaml           # LLMInferenceServiceConfig: router (no scheduler override)
 │   │   ├── llm-inferenceservice.yaml  # LLMInferenceService: composes 3 configs via baseRefs
 │   │   └── endpoint-picker-config.yaml# ConfigMap: EPP scorer weights (prefix-cache 2.0, load 1.0)
 │   │
@@ -76,6 +78,11 @@ Browser ──https──→ chat.yacodata.com
 ├── case_alpha/                        # PREVIOUS — minimal FastAPI + WireGuard
 ├── case_gamma/                        # FUTURE — multi-model MIG binpacking
 ├── case_omega/                        # FUTURE — multi-model on RunPod
+│
+├── wireguard/                           # Shared WireGuard scripts
+│   ├── README.md                        # Documentation
+│   ├── cp-setup.sh                      # Server setup (run on CP)
+│   └── gpu-setup.sh                     # Client setup (run on each GPU node)
 │
 ├── frontend/
 │   └── nextchat/                      # NextChat SPA deployment
@@ -109,22 +116,24 @@ Browser ──https──→ chat.yacodata.com
 ### 2. Envoy Gateway (v1.8.2)
 - **Controller**: Installed via Helm in `envoy-gateway-system` namespace.
 - **GatewayClass** (`envoy`): References `gateway.envoyproxy.io/gatewayclass-controller`.
-- **Gateway** (`ai-gateway`, `envoy-ai-gateway-system`): HTTPS listener on port 443, TLS termination with cert-manager certificate for `envoy-llm.yacodata.com`. Labeled `serving.kserve.io/gateway: kserve-ingress-gateway` for KServe discovery. Allows routes from all namespaces.
-- **EnvoyProxy** (`gpu-node-proxy`): Schedules proxy pods on GPU node via `nodeSelector` + `tolerations`.
+- **Gateway** (`ai-gateway`, `envoy-ai-gateway-system`): HTTPS listener on port 443, TLS termination with cert-manager certificate for `llm.yacodata.com`. Labeled `serving.kserve.io/gateway: kserve-ingress-gateway` for KServe discovery. Allows routes from all namespaces.
+- **EnvoyProxy** (`ai-gateway-proxy`): Schedules proxy pods on CP node in `envoy-ai-gateway-system` namespace. Resources set via `spec.provider.kubernetes.envoyDeployment.container.resources`.
 - **Service**: Auto-created by Envoy Gateway, patched to `NodePort` with `nodePort: 30080`. Found via label selector `gateway.envoyproxy.io/owning-gateway-namespace=envoy-ai-gateway-system,gateway.envoyproxy.io/owning-gateway-name=ai-gateway`.
 - **Helm install sequence**: Stage 1 (base values with AI Gateway hooks), then after InferencePool CRDs exist, stage 2 (addon values + restart).
-- **Deployment**: Single replica on GPU node alongside vLLM pod.
+- **Deployment**: Single replica on CP node.
 - **Cross-node networking**: The proxy pod connects to the envoy-gateway controller (CP node) via xDS. Flannel VXLAN carries this traffic; when CP and GPU are on different networks, VXLAN packets flow over a WireGuard tunnel (see [WireGuard setup](#prerequisites)).
 
 ### 3. Envoy AI Gateway (v1.0.0)
 - **CRD chart** (`ai-gateway-crds-helm`): Installed in `envoy-ai-gateway-system`, provides `AIGatewayRoute`, `InferencePool`, `InferenceModel` CRDs.
 - **Controller chart** (`ai-gateway-helm`): AI routing logic, token metering, rate limiting.
 - **AIGatewayRoute** (`qwen-route`, `beta`): Matches header `x-ai-eg-model: qwen2.5-7b` (Exact). Backend refs to `InferencePool qwen-7b-inference-pool` from `inference.networking.k8s.io`. Includes `llmRequestCosts` for input/output/total token metering. Parent refs to Gateway `ai-gateway` in `envoy-ai-gateway-system`.
+- **Backend routing**: Uses `gateway.envoyproxy.io/v1alpha1` Backend with FQDN pointing to the InferencePool, plus `aigateway.envoyproxy.io/v1beta1` AIServiceBackend. Switched from FQDN-based service to InferencePool-based routing.
 
 ### 4. KServe (v0.18)
 - Installed monolithically via `kubectl apply --server-side -f kserve.yaml` (not split Helm charts).
 - Gateway API enabled — `kserveGateway=envoy-ai-gateway-system/ai-gateway`.
-- Manages `LLMInferenceService` + automatically creates `InferencePool`/`InferenceModel` via `router.scheduler: {}`.
+- Manages `LLMInferenceService` + automatically creates `InferencePool` via `router.scheduler: {}`. InferencePool enables AI Gateway to route directly without EPP.
+- Two Gateways: `kserve-ingress-gateway` (kserve namespace, HTTP:80, ClusterIP internal) for KServe internal routing; `ai-gateway` (envoy-ai-gateway-system, HTTPS:443, NodePort:30080) for external traffic.
 
 ### 5. LLMInferenceService (qwen-7b)
 Split into 3 composable configs (`serving.kserve.io/v1alpha1`):
@@ -132,37 +141,33 @@ Split into 3 composable configs (`serving.kserve.io/v1alpha1`):
 | Config | Key Fields |
 |--------|-----------|
 | `qwen-model` | `uri: hf://Qwen/Qwen2.5-7B-Instruct`, `name: qwen2.5-7b` |
-| `qwen-workload` | Image `docker-registry.yacodata.com/kserve-vllm-qwen:0.11`, GPU 1 (10Gi/6Gi), hostNetwork, nodeSelector+tolerations, imagePullSecrets |
-| `qwen-router` | `router: {route: {}, gateway: {}, scheduler: {}}` |
+| `qwen-workload` | Image `vllm/vllm-openai:latest`, GPU 1 (16Gi/14Gi), hostNetwork, nodeSelector+tolerations, imagePullSecrets. Args: `--tensor-parallel-size 1 --max-num-seqs 4 --gpu-memory-utilization 0.85`. model-cache: emptyDir (not hostPath). |
+| `qwen-router` | `router: {route: {}, gateway: {}}` — scheduler template override removed (caused container spec to be wiped). |
 
 `LLMInferenceService` composes them via `baseRefs`.
 
 ### 6. vLLM Model
-- **Model**: Qwen/Qwen2.5-7B-Instruct (public, ~4 GB).
-- **Image**: `docker-registry.yacodata.com/kserve-vllm-qwen:0.11` — vLLM base image + baked model weights.
-- **Cold start**: ~10 seconds (weights baked in, no HF download at startup).
-- **HF token**: Passed via BuildKit secret at build time (`--secret id=hf_token,env=HF_TOKEN`), not persisted in image layers.
+- **Model**: Qwen/Qwen2.5-7B-Instruct (public, ~15 GB).
+- **Image**: `vllm/vllm-openai:latest` — upstream vLLM image (no baked model weights).
+- **Cold start**: ~5-10 minutes (model downloaded via storage-initializer init container from HuggingFace, then loaded by vLLM).
+- **Download cache**: `model-cache` emptyDir mounted at `/mnt/huggingface/models`; model re-downloaded on each new pod.
+- **HF token**: Passed via env var from `hf-token` secret.
 
-### 7. EPP Scheduler
-ConfigMap `custom-endpoint-picker-config` in namespace `beta`:
-```yaml
-schedulingProfiles:
-  - name: default
-    plugins:
-      - pluginRef: prefix-cache-scorer; weight: 2.0
-      - pluginRef: load-aware-scorer;    weight: 1.0
-      - pluginRef: max-score-picker
-```
+### 7. EPP Scheduler (not deployed)
+- KServe's EPP (router/scheduler) deployment is **not created** when the router config has no scheduler template override.
+- With a single-worker InferencePool, routing is handled directly by the InferencePool and AI Gateway — the EPP layer is not required.
+- ConfigMap `custom-endpoint-picker-config` in namespace `beta` defines scoring weights (prefix-cache w:2.0, load-aware w:1.0) but is unused without EPP.
+- Scheduler template override (`qwen-router.yaml`) was removed because partial `scheduler.template` overrides replace the entire built-in PodTemplateSpec, wiping containers.
 
 ### 8. TLS
 - **Issuer**: cert-manager `ClusterIssuer` (Let's Encrypt, DNS-01 via Cloudflare).
 - **Certificates**:
-  - `envoy-tls-cert` in `envoy-ai-gateway-system` for `envoy-llm.yacodata.com`.
+  - `envoy-tls-cert` in `envoy-ai-gateway-system` for `llm.yacodata.com` (changed from `envoy-llm.yacodata.com`).
   - `frontend-tls-cert` in `frontend` for `chat.yacodata.com`.
 - **Cloudflare secret**: `cloudflare-api-token` in `cert-manager` namespace.
 
 ### 9. CORS
-SecurityPolicy `cors-policy` (namespace `beta`) targeting AIGatewayRoute `qwen-route`:
+SecurityPolicy `cors-policy` (namespace `beta`) targeting HTTPRoute `qwen-7b-kserve-route` (changed from AIServiceBackend):
 - Allowed origins: `https://chat.yacodata.com`, `https://*.yacodata.com`, `http://localhost:3000`, `http://localhost:8000`.
 - Methods: POST, OPTIONS, GET.
 - Headers: Content-Type, Authorization.
@@ -171,7 +176,7 @@ SecurityPolicy `cors-policy` (namespace `beta`) targeting AIGatewayRoute `qwen-r
 - **Deployment**: `yidadaa/chatgpt-next-web:latest`, served from Hetzner CP.
 - **Service**: NodePort `30081` (port 443 → container 3000).
 - **TLS**: Self-served via `TLS_CERT`/`TLS_KEY` env vars from mounted `frontend-tls-cert` secret.
-- **Endpoint**: `BASE_URL=https://envoy-llm.yacodata.com:30080/v1`, model `qwen2.5-7b`.
+- **Endpoint**: `BASE_URL=https://llm.yacodata.com/v1` (standard HTTPS port 443, not 30080). Model `qwen2.5-7b`.
 
 ### 11. Monitoring
 - Prometheus + Grafana (kube-prometheus-stack) + DCGM exporter for GPU metrics. All in `monitoring` namespace.
@@ -184,12 +189,15 @@ SecurityPolicy `cors-policy` (namespace `beta`) targeting AIGatewayRoute `qwen-r
 
 When the CP and GPU nodes are on different networks (e.g., Hetzner CP + Vast.ai GPU), Flannel VXLAN cannot reach the GPU node's private IP. A host-native WireGuard tunnel bridges this gap. If all nodes share a flat network, skip this.
 
-1. **Server (CP node):** Run `case_beta/wireguard-cp-setup.sh` to generate keys, create config, and start `wg-quick@wg0`.
-2. **Client (GPU node):** Generate keys, create `wg0.conf` with the CP's public key, run `case_beta/wireguard-setup.sh`.
-3. **Key exchange:** Share public keys between nodes; add GPU's public key to CP's `wg0.conf` `[Peer]` section.
-4. **Route (CP node):** Add `ip route add <gpu-internal-ip>/32 via 10.8.0.2 dev wg0` to route VXLAN through the tunnel.
+See [wireguard/README.md](./wireguard/README.md) for full setup instructions.
 
-See [case_beta/README.md](./case_beta/README.md#wireguard-setup) for full instructions.
+**Quick start:**
+1. **Server (CP node):** Run `bash wireguard/cp-wireguard-setup.sh` — generates keys, creates config, sets K3s `node-ip` + `flannel-iface=wg0`, starts `wg-quick@wg0`.
+2. **Client (GPU node):** Run `bash wireguard/gpu-wireguard-setup.sh` — generates keys, prompts for CP pubkey/IP, starts tunnel, verifies ping to `10.10.0.1`.
+3. **Key exchange:** Add GPU's public key to CP's `wg0.conf` `[Peer]` section, restart wg-quick on CP.
+4. **K3s agent:** Install with `--node-ip=10.10.0.2 --flannel-iface=wg0` so Flannel VXLAN binds to the WG interface.
+5. **UFW:** Allow UDP 8472 from the peer's WG IP on both nodes — `sudo ufw allow from 10.10.0.0/24 to any port 8472 proto udp`
+6. **All cases use WG subnet `10.10.0.0/24`:** CP = `.1`, GPU = `.2`, etc.
 
 ## Deployment Flow
 
@@ -217,41 +225,34 @@ See [case_beta/README.md](./case_beta/README.md#wireguard-setup) for full instru
     ├── 6. AI Gateway Controller + wait
     ├── 7. LWS Operator
     ├── 8. KServe monolithic + InfExt CRDs
-    ├── 8c. Envoy Gateway addon values + restart
-    ├── 9. Re-apply Gateway (post-KServe)
-    ├── 10. Monitoring (Prometheus + Grafana + DCGM)
-    ├── 11. KServe configs (EPP + 3 model configs)
-    ├── 12. LLMInferenceService
-    ├── 13. AIGatewayRoute
-    ├── 14. Patch proxy service → NodePort 30080
-    ├── 15. CORS policy
-    └── 16. NextChat frontend
+    ├── 9. Re-apply Gateway (post-KServe) + Certificate
+    ├── 10. KServe configs (qwen-model, qwen-workload, qwen-router)
+    ├── 11. LLMInferenceService
+    ├── 12. AIGatewayRoute + Backend + AIServiceBackend
+    ├── 13. Rate limit policy + CORS policy
+    └── 14. NextChat frontend
 
 Post-deploy:
-    - Vast.ai port forwarding: instance port → 30080
-    - DNS A records: envoy-llm → vast-ip, chat → hetzner-ip
+    - GPU node port forwarding: instance port → 30080
+    - DNS A records: llm → gpu-ip, chat → hetzner-ip
 ```
 
 ## Request Flow (end-to-end)
 
 ```
-Browser POST https://envoy-llm.yacodata.com:30080/v1/chat/completions
+Browser POST https://llm.yacodata.com/v1/chat/completions
   Header: x-ai-eg-model: qwen2.5-7b
-  ↓ (public internet)
-Vast.ai instance port → GPU node 30080
-  ↓
-Envoy Gateway proxy (NodePort 30080, HTTPS terminated)
-  ↓
+  ↓ (public internet, DNS → GPU node public IP)
+Envoy Gateway proxy (CP node, NodePort 30080, HTTPS terminated)
+  ↓ (Flannel VXLAN over WireGuard if cross-network)
 Envoy AI Gateway matches AIGatewayRoute "qwen-route"
   ├── Matches header x-ai-eg-model: qwen2.5-7b
   ├── Applies token metering (input/output/total)
   └── Routes to InferencePool "qwen-7b-inference-pool"
       ↓
-KServe llm-d router → EPP scheduler
-  ├── prefix-cache scorer (w:2.0)
-  └── load-aware scorer (w:1.0)
-      ↓
-vLLM pod (Qwen/Qwen2.5-7B-Instruct, RTX 3090)
+KServe HTTPRoute "qwen-7b-kserve-route" → InferencePool
+      ↓ (via Backend + AIServiceBackend to InferencePool FQDN)
+vLLM pod (Qwen/Qwen2.5-7B-Instruct, GPU)
   ↓
 Response back through chain
 ```

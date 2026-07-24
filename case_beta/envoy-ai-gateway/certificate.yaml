@@ -24,7 +24,7 @@ metadata:
 spec:
   secretName: envoy-tls-cert
   dnsNames:
-    - envoy-llm.yacodata.com
+    - llm.yacodata.com
   issuerRef:
     name: letsencrypt-issuer
     kind: ClusterIssuer

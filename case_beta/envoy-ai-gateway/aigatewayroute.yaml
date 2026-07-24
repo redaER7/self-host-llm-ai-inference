@@ -14,11 +14,10 @@ spec:
         - headers:
             - type: Exact
               name: x-ai-eg-model
-              value: qwen2.5-3b
+              value: qwen2.5-7b
       backendRefs:
-        - group: inference.networking.k8s.io
-          kind: InferencePool
-          name: qwen-7b-inference-pool
+        - name: qwen-backend
+
   llmRequestCosts:
     - metadataKey: llm_input_token
       type: InputToken

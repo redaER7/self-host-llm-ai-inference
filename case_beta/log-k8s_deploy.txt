@@ -1,0 +1,107 @@
+=== 1. Namespace ===
+namespace/beta configured
+=== 2. cert-manager ===
+"jetstack" has been added to your repositories
+Release "cert-manager" has been upgraded. Happy Helming!
+NAME: cert-manager
+LAST DEPLOYED: Fri Jul 24 07:59:42 2026
+NAMESPACE: cert-manager
+STATUS: deployed
+REVISION: 9
+DESCRIPTION: Upgrade complete
+TEST SUITE: None
+NOTES:
+⚠️  WARNING: New default private key rotation policy for Certificate resources.
+The default private key rotation policy for Certificate resources was
+changed to `Always` in cert-manager >= v1.18.0.
+Learn more in the [1.18 release notes](https://cert-manager.io/docs/releases/release-notes/release-notes-1.18).
+
+cert-manager v1.18.0 has been deployed successfully!
+
+In order to begin issuing certificates, you will need to set up a ClusterIssuer
+or Issuer resource (for example, by creating a 'letsencrypt-staging' issuer).
+
+More information on the different types of issuers and how to configure them
+can be found in our documentation:
+
+https://cert-manager.io/docs/configuration/
+
+For information on how to configure cert-manager to automatically provision
+Certificates for Ingress resources, take a look at the `ingress-shim`
+documentation:
+
+https://cert-manager.io/docs/usage/ingress/
+Creating TLS certificate (llm.yacodata.com)
+Creating TLS certificate (chat.yacodata.com)
+=== 3. AI Gateway CRDs ===
+Pulled: docker.io/envoyproxy/ai-gateway-crds-helm:v1.0.0
+Digest: sha256:9bad0166740a3fa073f421004f521e1fc960d17b9c3246342a109bb26aaefae1
+Release "aieg-crd" has been upgraded. Happy Helming!
+NAME: aieg-crd
+LAST DEPLOYED: Fri Jul 24 07:59:48 2026
+NAMESPACE: envoy-ai-gateway-system
+STATUS: deployed
+REVISION: 7
+DESCRIPTION: Upgrade complete
+TEST SUITE: None
+=== 4. Envoy Gateway ===
+Pulled: docker.io/envoyproxy/gateway-helm:v1.8.2
+Digest: sha256:bd2d3e5ebeab47cbf06fd3ab31a1546e8b1b2d2d9a98d4e9378b880be8751249
+Release "eg" has been upgraded. Happy Helming!
+NAME: eg
+LAST DEPLOYED: Fri Jul 24 07:59:53 2026
+NAMESPACE: envoy-gateway-system
+STATUS: deployed
+REVISION: 11
+DESCRIPTION: Upgrade complete
+TEST SUITE: None
+NOTES:
+**************************************************************************
+*** PLEASE BE PATIENT: Envoy Gateway may take a few minutes to install ***
+**************************************************************************
+
+Envoy Gateway is an open source project for managing Envoy Proxy as a standalone or Kubernetes-based application gateway.
+
+Thank you for installing Envoy Gateway! 🎉
+
+Your release is named: eg. 🎉
+
+Your release is in namespace: envoy-gateway-system. 🎉
+
+To learn more about the release, try:
+
+  $ helm status eg -n envoy-gateway-system
+  $ helm get all eg -n envoy-gateway-system
+
+To have a quickstart of Envoy Gateway, please refer to https://gateway.envoyproxy.io/latest/tasks/quickstart.
+
+To get more details, please visit https://gateway.envoyproxy.io and https://github.com/envoyproxy/gateway.
+deployment.apps/envoy-gateway condition met
+=== 5. AI Gateway Controller ===
+Pulled: docker.io/envoyproxy/ai-gateway-helm:v1.0.0
+Digest: sha256:093b6b9caec92675e24dbe8a2825c1e908ea18fc28e66d46a7e6622aeb79c085
+Release "aieg" has been upgraded. Happy Helming!
+NAME: aieg
+LAST DEPLOYED: Fri Jul 24 08:00:02 2026
+NAMESPACE: envoy-ai-gateway-system
+STATUS: deployed
+REVISION: 7
+DESCRIPTION: Upgrade complete
+TEST SUITE: None
+deployment.apps/ai-gateway-controller condition met
+=== 6. GatewayClass + EnvoyProxy + Gateway ===
+gatewayclass.gateway.networking.k8s.io/envoy unchanged
+envoyproxy.gateway.envoyproxy.io/ai-gateway-proxy unchanged
+gateway.gateway.networking.k8s.io/ai-gateway configured
+=== 7. LWS Operator ===
+Pulled: registry.k8s.io/lws/charts/lws:0.9.0
+Digest: sha256:39d2af31debbc311164b20d243b54aff2c0bb148aee06b61c6b01f6317a5ed4d
+Release "lws" has been upgraded. Happy Helming!
+NAME: lws
+LAST DEPLOYED: Fri Jul 24 08:00:07 2026
+NAMESPACE: lws-system
+STATUS: deployed
+REVISION: 6
+DESCRIPTION: Upgrade complete
+TEST SUITE: None
+=== 8. KServe (monolithic) ===

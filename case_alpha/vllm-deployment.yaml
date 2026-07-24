@@ -44,7 +44,7 @@ spec:
             - vllm.entrypoints.openai.api_server
           args:
             - --model
-            - Qwen/Qwen2.5-7B-Instruct
+            - Qwen/Qwen2.5-3B-Instruct  #Qwen/Qwen2.5-7B-Instruct
             - --port
             - "8100"
             - --host
@@ -83,11 +83,10 @@ spec:
               mountPath: /dev/shm
             - name: model-cache
               mountPath: /root/.cache/huggingface
-          #securityContext:
-          #  capabilities:
-          #    add:
-          #      - NET_ADMIN
-          #      - NET_RAW
+          securityContext:
+            capabilities:
+              drop:
+                - ALL
       volumes:
         - name: dshm
           emptyDir:

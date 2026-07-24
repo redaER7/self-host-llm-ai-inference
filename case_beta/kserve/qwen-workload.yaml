@@ -25,21 +25,24 @@ spec:
           - vllm.entrypoints.openai.api_server
         args:
           - --model
-          - Qwen/Qwen2.5-3B-Instruct
+          - Qwen/Qwen2.5-7B-Instruct
           - --port
           - "8000"
           - --host
           - "0.0.0.0"
           - --dtype
           - auto
+          - --tensor-parallel-size
+          - "1"
           - --max-model-len
           - "4096"
+          - --max-num-seqs
+          - "4"
           - --gpu-memory-utilization
-          - "0.9"
+          - "0.85"
           - --download-dir
-          - /root/.cache/huggingface
-        
-        # Add all working environment variables
+          - /mnt/huggingface/models
+
         env:
           - name: HF_TOKEN
             valueFrom:
@@ -56,50 +59,31 @@ spec:
             value: "all"
           - name: NVIDIA_DRIVER_CAPABILITIES
             value: "compute,utility"
-        
-        # Simplified volume mounts (remove cuda-libs, keep only what works)
+
         volumeMounts:
           - name: dshm
             mountPath: /dev/shm
           - name: model-cache
-            mountPath: /root/.cache/huggingface
-        
+            mountPath: /mnt/huggingface/models
+
         resources:
           limits:
             nvidia.com/gpu: "1"
-            memory: 23Gi
+            memory: 16Gi
           requests:
             nvidia.com/gpu: "1"
-            memory: 21Gi
-        
-        # Same security context as working deployment
+            memory: 14Gi
+
         securityContext:
           runAsNonRoot: false
           capabilities:
             drop:
               - ALL
-    
-    # Simplified volumes
+
     volumes:
       - name: dshm
         emptyDir:
           medium: Memory
           sizeLimit: 4Gi
       - name: model-cache
-        emptyDir:
-          sizeLimit: 20Gi
-
-    #containers:
-    #  - name: main
-    #    image: docker-registry.yacodata.com/kserve-vllm-qwen:0.1
-    #    imagePullPolicy: Always
-    #    args:
-    #      - --model
-    #      - Qwen/Qwen2.5-3B-Instruct
-    #    resources:
-    #      limits:
-    #        nvidia.com/gpu: "1"
-    #        memory: 23Gi
-    #      requests:
-    #        nvidia.com/gpu: "1"
-    #        memory: 21Gi
+        emptyDir: {}

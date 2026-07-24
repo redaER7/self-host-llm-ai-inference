@@ -1,0 +1,43 @@
+Certainly! Below is a simple Python class that allows you to create an object which can store two numbers and provide methods to calculate their sum and product.
+
+```python
+class NumberPair:
+    def __init__(self, num1, num2):
+        """
+        Initializes the NumberPair object with two numbers.
+        
+        :param num1: The first number.
+        :param num2: The second number.
+        """
+        self.num1 = num1
+        self.num2 = num2
+
+    def sum(self):
+        """
+        Returns the sum of the two numbers.
+        
+        :return: The sum of num1 and num2.
+        """
+        return self.num1 + self.num2
+
+    def product(self):
+        """
+        Returns the product of the two numbers.
+        
+        :return: The product of num1 and num2.
+        """
+        return self.num1 * self.num2
+
+# Example usage:
+if __name__ == "__main__":
+    np = NumberPair(5, 3)
+    print(f"Sum: {np.sum()}")  # Output: Sum: 8
+    print(f"Product: {np.product()}")  # Output: Product: 15
+```
+
+In this class:
+- `__init__` is the constructor method that initializes the object with two numbers.
+- `sum` is a method that returns the sum of the two numbers.
+- `product` is a method that returns the product of the two numbers.
+
+You can create an instance of the `NumberPair` class and use its methods to get the sum and product of any two numbers.

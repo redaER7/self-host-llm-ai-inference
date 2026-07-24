@@ -20,7 +20,7 @@ spec:
             - containerPort: 3000
           env:
             - name: BASE_URL
-              value: "https://envoy-llm.yacodata.com:30080/v1"
+              value: "https://llm.yacodata.com/v1"
             - name: CUSTOM_MODELS
               value: "qwen2.5-7b"
             - name: TLS_CERT
