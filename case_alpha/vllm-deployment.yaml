@@ -63,6 +63,11 @@ spec:
                 secretKeyRef:
                   name: hf-token
                   key: token
+            - name: HUGGING_FACE_HUB_TOKEN  # ← add this
+              valueFrom:
+                secretKeyRef:
+                  name: hf-token
+                  key: token
             - name: HF_XET_HIGH_PERFORMANCE
               value: "1"
             - name: VLLM_LOGGING_LEVEL

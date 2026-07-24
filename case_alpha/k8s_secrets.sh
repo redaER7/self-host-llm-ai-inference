@@ -23,10 +23,16 @@ kubectl create secret docker-registry registry-credentials \
   --docker-password="${REGISTRY_PASSWORD:?Set REGISTRY_PASSWORD}" \
   --dry-run=client -o yaml | kubectl apply -f -
 
-echo "[3/3] HuggingFace token (model download)"
+echo "[3/4] HuggingFace token (model download)"
 kubectl create secret generic hf-token \
   --namespace alpha \
   --from-literal=token="${HF_TOKEN:?Set HF_TOKEN}" \
+  --dry-run=client -o yaml | kubectl apply -f -
+
+echo "[4/4] NextChat secret (password protection)"
+kubectl create secret generic nextchat-secret \
+  --namespace frontend \
+  --from-literal=code="${NEXTCHAT_CODE:?Set NEXTCHAT_CODE}" \
   --dry-run=client -o yaml | kubectl apply -f -
 
 echo ""

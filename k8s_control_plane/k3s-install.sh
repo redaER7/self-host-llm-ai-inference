@@ -48,6 +48,10 @@ echo "[5/5] K3s control plane ready"
 NODE_IP=$(k3s kubectl get node "$(hostname)" -o jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}' 2>/dev/null)
 TOKEN=$(sudo cat /var/lib/rancher/k3s/server/node-token 2>/dev/null)
 
+# Create kubeconfig
+mkdir -p ~/.kube
+sudo cp /etc/rancher/k3s/k3s.yaml ~/.kube/config
+
 echo ""
 echo "=========================================="
 echo " K3s Control Plane Ready"
