@@ -5,9 +5,8 @@ metadata:
   namespace: frontend
 spec:
   parentRefs:
-    - name: ai-gateway
-      namespace: envoy-ai-gateway-system
-      sectionName: chat-https
+    - name: alpha-gateway
+      namespace: alpha
   hostnames:
     - chat.yacodata.com
   rules:
