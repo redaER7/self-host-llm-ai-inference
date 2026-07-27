@@ -1,13 +1,44 @@
 # Codebase
 
-Self-host LLM inference on rented GPUs using K3s, Envoy AI Gateway, KServe + llm-d + vLLM.
-Control plane on Hetzner Cloud, GPU workers on Vast.ai / Trooper AI.
+Self-host LLM inference on rented GPUs using K3s, Envoy Gateway, vLLM.
+Control plane on Hetzner Cloud, GPU workers on Trooper AI / Vast.ai.
 
-**Tags**: `k3s` `kserve` `vllm` `llm-d` `envoy-ai-gateway` `hetzner` `vast-ai` `gpu-inference` `self-hosted-llm`
+**Tags**: `k3s` `vllm` `envoy-gateway` `hetzner` `trooper-ai` `vast-ai` `wireguard` `gpu-inference` `self-hosted-llm`
 
 ---
 
-## Architecture (Case beta — current/active)
+## Architecture (Case alpha — current/active)
+
+Minimal path: Envoy Gateway (no AI Gateway) → vLLM on a Trooper AI GPU over WireGuard. Public HTTPS via cert-manager. Security code–protected NextChat frontend.
+
+```
+Browser ──https──→ llm.yacodata.com / chat.yacodata.com (443)
+                      │
+                 socat (CP host, 443 → 30080)
+                      │
+                 Envoy Gateway proxy (CP, NodePort 30080)
+                    ├── /v1/*  → vLLM (GPU, vllm-service:8100 via WireGuard)
+                    └── /*     → NextChat (CP, nextchat:3000)
+```
+
+**Two public DNS records:**
+| Record | Target | Purpose |
+|--------|--------|---------|
+| `llm.yacodata.com` | Hetzner CP IP | TLS SNI for Envoy Gateway |
+| `chat.yacodata.com` | Hetzner CP IP | NextChat frontend |
+
+**Key properties:**
+- No AI Gateway, no KServe, no llm-d, no EPP — plain HTTPRoute to vLLM
+- Single SAN cert for both domains (`llm.yacodata.com`, `chat.yacodata.com`)
+- Path-based routing: `/v1/*` → vLLM, `/*` → NextChat
+- socat systemd service for port 443 → 30080 (replaces iptables REDIRECT)
+- NextChat password-protected via `CODE` env var from Kubernetes Secret
+- Model: Qwen/Qwen2.5-3B-Instruct (HF download at startup, ~1-2 min cold start)
+- 3-script deploy: `k8s_secrets.sh` → `k8s_deploy.sh` → `hetzner-cp-node-socat.sh`
+
+---
+
+## Architecture (Case beta — alternative)
 
 All inference components co-located on the GPU node — inference data plane stays local, no cross-node hops for vLLM responses. Cross-node control plane traffic (Flannel VXLAN) flows over a WireGuard tunnel when CP and GPU are on different networks (e.g., Hetzner + Vast.ai).
 
@@ -44,6 +75,7 @@ Browser ──https──→ chat.yacodata.com
 ├── README.md                          # Project overview, all cases
 ├── CODEBASE.md                        # This file
 ├── Plan.md                            # Full architecture plan
+├── hetzner-cp-node-socat.sh           # socat forwarder 443→30080 (shared α β)
 ├── .env                               # Environment variables (gitignored)
 │
 ├── case_beta/                         # ACTIVE — single-model, Envoy AI Gateway
@@ -75,7 +107,25 @@ Browser ──https──→ chat.yacodata.com
 │   ├── wireguard-setup.sh            # WireGuard client setup + UFW rules (run on GPU node)
 │   └── epp-scheduler/                # EPP scheduler reference (placeholder)
 │
-├── case_alpha/                        # PREVIOUS — minimal FastAPI + WireGuard
+├── case_alpha/                        # ACTIVE — minimal single model, Envoy Gateway
+│   ├── k8s_secrets.sh                 # [1] Namespaces + secrets
+│   ├── k8s_deploy.sh                  # [2] Full 12-step deployment
+│   ├── README.md
+│   │
+│   ├── envoy-gateway/                 # Envoy Gateway resources (no AI Gateway)
+│   │   ├── gatewayclass.yaml          # GatewayClass "envoy"
+│   │   ├── gateway.yaml               # Gateway "alpha-gateway" (HTTPS, SAN cert)
+│   │   ├── envoyproxy.yaml            # CP node scheduling, NodePort type
+│   │   ├── certificate.yaml           # ClusterIssuer + Certificate (llm + chat SAN)
+│   │   ├── envoy-gateway-values.yaml  # Helm values — no extensions, no hooks
+│   │   ├── httproute-vllm.yaml        # Route /v1/* → vllm-service:8100
+│   │   ├── httproute-nextchat.yaml    # Route chat.yacodata.com → nextchat:3000
+│   │   └── cors-policy.yaml           # SecurityPolicy: CORS for NextChat
+│   │
+│   ├── frontend/nextchat/             # Alpha-specific NextChat deployment
+│   │   └── deployment.yaml            # CODE from secret, CUSTOM_MODELS for 3B
+│   │
+│   └── vllm-deployment.yaml           # vLLM (Qwen2.5-3B, GPU node, hostNetwork)
 ├── case_gamma/                        # FUTURE — multi-model MIG binpacking
 ├── case_omega/                        # FUTURE — multi-model on RunPod
 │
