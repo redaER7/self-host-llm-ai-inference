@@ -1,8 +1,8 @@
 # Case α+envoy-AI — Minimal Single Model with Envoy AI Gateway
 
-Envoy AI Gateway → vLLM on a Trooper AI GPU, with a WireGuard tunnel connecting the Hetzner control plane to the GPU node. Public HTTPS via cert-manager. Token metering, rate limiting, and CORS-enabled NextChat frontend.
+Envoy AI Gateway → vLLM on a Trooper AI GPU, with a WireGuard tunnel connecting the Hetzner control plane to the GPU node. Public HTTPS via cert-manager. Token metering and CORS-enabled NextChat frontend.
 
-Same as case_alpha but replaces plain Envoy Gateway HTTPRoute routing with Envoy AI Gateway (token metering + rate limiting). **No KServe** — vLLM remains a plain Deployment.
+Same as case_alpha but replaces plain Envoy Gateway HTTPRoute routing with Envoy AI Gateway (token metering).
 
 ## Architecture
 
@@ -27,7 +27,7 @@ Browser ──https──→ llm.yacodata.com / chat.yacodata.com (443)
 | K3s CP | Hetzner CX33 (4 vCPU, 8 GB) | K3s server, `node-role.kubernetes.io/control-plane` |
 | GPU worker | Trooper AI | K3s agent, `gpu-node` label + taint |
 | Envoy Gateway | Hetzner CP | Helm install with AI Gateway extensionManager |
-| AI Gateway Controller | Hetzner CP | Token metering, rate limiting, AIGatewayRoute routing |
+| AI Gateway Controller | Hetzner CP | Token metering, AIGatewayRoute routing |
 | vLLM | GPU node | `hostNetwork: true`, HF download at startup (7B ~15 GB) |
 | NextChat | Hetzner CP | ClusterIP:3000, password protected via `CODE` env var |
 | TLS | cert-manager | Let's Encrypt DNS-01 via Cloudflare, SAN cert for both domains |
@@ -71,7 +71,6 @@ Browser ──https──→ llm.yacodata.com / chat.yacodata.com (443)
 | `envoy-ai-gateway/certificate.yaml` | ClusterIssuer + Certificate (Let's Encrypt DNS-01) |
 | `envoy-ai-gateway/backend.yaml` | Backend → `vllm-service.alpha.svc.cluster.local:8100` + AIServiceBackend |
 | `envoy-ai-gateway/aigatewayroute.yaml` | AIGatewayRoute with token metering (no header match) |
-| `envoy-ai-gateway/rate-limit.yaml` | BackendTrafficPolicy (60 req/min, 10k tokens/min) |
 | `envoy-ai-gateway/cors-policy.yaml` | SecurityPolicy (CORS for NextChat origin) |
 | `envoy-ai-gateway/httproute-nextchat.yaml` | HTTPRoute for `chat.yacodata.com` → NextChat |
 | `frontend/nextchat/deployment.yaml` | NextChat with `CUSTOM_MODELS: Qwen/Qwen2.5-7B-Instruct` |
@@ -110,10 +109,10 @@ bash hetzner-cp-node-socat.sh
 
 ## Deployment Details
 
-The `k8s_deploy.sh` script runs 16 steps:
+The `k8s_deploy.sh` script runs 17 steps:
 
 ```
- 1. Namespaces (alpha, frontend, cert-manager, envoy-*)
+ 1. Namespaces (alpha, frontend, monitoring, cert-manager, envoy-*)
  2. cert-manager (Helm v1.18.0)
  3. AI Gateway CRDs (Helm v1.0.0)
  4. NVIDIA device plugin (local manifest with GPU node tolerations)
@@ -122,13 +121,14 @@ The `k8s_deploy.sh` script runs 16 steps:
  7. GatewayClass + EnvoyProxy + Gateway
  8. TLS Certificate (wait for Ready)
  9. Patch proxy service → NodePort 30080
-10. vLLM deployment (Qwen2.5-7B, GPU node)
+10. vLLM deployment (Qwen2.5-7B, GPU node, prometheus annotations)
 11. Backend + AIServiceBackend
 12. AIGatewayRoute (token metering)
-13. Rate limiting (BackendTrafficPolicy)
-14. CORS policy (SecurityPolicy on Gateway)
-15. NextChat (deployment + service + HTTPRoute)
-16. socat forwarder (443 → 30080)
+13. CORS policy (SecurityPolicy on Gateway)
+14. NextChat (deployment + service + HTTPRoute)
+15. socat forwarder (443 → 30080)
+16. kube-prometheus-stack (Prometheus + Grafana + node_exporter + kube-state-metrics)
+17. DCGM Exporter (GPU metrics DaemonSet)
 ```
 
 ## Testing
@@ -159,7 +159,7 @@ curl -k -X POST https://localhost:30080/v1/chat/completions \
 | AI Gateway Controller | ❌ | ✅ |
 | Routing | HTTPRoute `/v1/` → vLLM | **AIGatewayRoute** (with token metering) |
 | Token metering | ❌ | ✅ (input/output/total) |
-| Rate limiting | ❌ | ✅ (60 req/min, 10k tokens/min) |
+
 | Gateway listeners | Single HTTPS (both domains) | **Two listeners** (llm + chat) |
 
 ## Differences from case_beta
@@ -170,7 +170,7 @@ curl -k -X POST https://localhost:30080/v1/chat/completions \
 | Backend target | InferencePool | **vLLM Service** (`vllm-service:8100`) |
 | InferencePool | ✅ | ❌ |
 | LWS Operator | ✅ | ❌ |
-| Monitoring | ✅ Prometheus/DCGM | ❌ (optional add-on) |
+| Monitoring | ✅ Prometheus/DCGM | ✅ Prometheus/DCGM |
 | Complexity | High | **Medium** |
 
 ## Key Design Decisions
@@ -188,7 +188,7 @@ curl -k -X POST https://localhost:30080/v1/chat/completions \
 - KServe (no CRDs, no InferenceService)
 - InferencePool / InferenceModel (no EPP scheduler)
 - Multi-model serving
-- Prometheus monitoring stack
+- Envoy AI Gateway metrics (not yet configured)
 - Scale-to-zero (pod runs 24/7)
 - MIG or GPU sharing
 - Baked model image (HF download at startup)

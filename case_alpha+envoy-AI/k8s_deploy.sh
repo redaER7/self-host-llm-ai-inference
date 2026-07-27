@@ -6,6 +6,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 echo "=== 1. Namespaces ==="
 kubectl create namespace alpha --dry-run=client -o yaml | kubectl apply -f -
 kubectl create namespace frontend --dry-run=client -o yaml | kubectl apply -f -
+kubectl create namespace monitoring --dry-run=client -o yaml | kubectl apply -f -
 
 echo "=== 2. cert-manager ==="
 helm repo add jetstack https://charts.jetstack.io --force-update
@@ -66,22 +67,31 @@ kubectl apply -f "${SCRIPT_DIR}/envoy-ai-gateway/backend.yaml"
 echo "=== 12. AIGatewayRoute (token metering) ==="
 kubectl apply -f "${SCRIPT_DIR}/envoy-ai-gateway/aigatewayroute.yaml"
 
-echo "=== 13. Rate limiting ==="
-kubectl apply -f "${SCRIPT_DIR}/envoy-ai-gateway/rate-limit.yaml"
-
-echo "=== 14. CORS policy ==="
+echo "=== 13. CORS policy ==="
 kubectl apply -f "${SCRIPT_DIR}/envoy-ai-gateway/cors-policy.yaml"
 
-echo "=== 15. Deploy NextChat (HTTP only, TLS at Envoy) ==="
+echo "=== 14. Deploy NextChat (HTTP only, TLS at Envoy) ==="
 kubectl apply -f "${SCRIPT_DIR}/frontend/nextchat/deployment.yaml"
 kubectl apply -f "${SCRIPT_DIR}/frontend/nextchat/service.yaml"
 kubectl apply -f "${SCRIPT_DIR}/envoy-ai-gateway/httproute-nextchat.yaml"
 
-echo "=== 16. socat forwarder 443 → 30080 (run once) ==="
+echo "=== 15. socat forwarder 443 → 30080 (run once) ==="
 bash "${SCRIPT_DIR}/../hetzner-cp-node-socat.sh"
+
+echo "=== 16. kube-prometheus-stack (Prometheus + Grafana + node_exporter) ==="
+helm repo add prometheus-community https://prometheus-community.github.io/helm-charts --force-update
+helm upgrade --install kube-prometheus-stack prometheus-community/kube-prometheus-stack \
+  --namespace monitoring --create-namespace \
+  -f "${SCRIPT_DIR}/../monitoring/kube-prometheus-stack-values.yaml"
+kubectl wait --timeout=3m -n monitoring pod -l app.kubernetes.io/instance=kube-prometheus-stack --for=condition=Ready 2>/dev/null || true
+
+echo "=== 17. DCGM Exporter (GPU metrics on GPU node) ==="
+kubectl apply -f "${SCRIPT_DIR}/../monitoring/dcgm-exporter.yaml"
+kubectl wait --timeout=2m -n monitoring pod -l app=dcgm-exporter --for=condition=Ready 2>/dev/null || true
 
 echo ""
 echo "=== All resources deployed ==="
+echo ""
 echo "Test inference:"
 echo "  curl -X POST https://llm.yacodata.com/v1/chat/completions \\"
 echo "    -H \"Content-Type: application/json\" \\"
@@ -89,6 +99,10 @@ echo "    -d '{\"model\":\"Qwen/Qwen2.5-7B-Instruct\",\"messages\":[{\"role\":\"
 echo ""
 echo "Test NextChat:"
 echo "  open https://chat.yacodata.com/"
+echo ""
+echo "Grafana (NodePort):"
+echo "  GRAFANA_PORT=\$(kubectl -n monitoring get svc kube-prometheus-stack-grafana -o jsonpath='{.spec.ports[0].nodePort}')"
+echo "  echo \"http://<cp-ip>:\$GRAFANA_PORT\"  # admin / admin"
 echo ""
 echo "Monitor AI Gateway logs:"
 echo "  kubectl logs -n envoy-ai-gateway-system deployment/ai-gateway-controller -f"

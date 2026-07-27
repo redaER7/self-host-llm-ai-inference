@@ -1,6 +1,6 @@
 # Helm values for kube-prometheus-stack
 # Installs Prometheus, Grafana, Alertmanager, node_exporter, kube-state-metrics.
-# Tuned for a single-node K3s on Hetzner CX33 (4 vCPU, 8 GB RAM, 40 GB disk).
+# All monitoring workloads scheduled on GPU node to keep CP node lightweight.
 
 # -- Global image registry (leave default)
 global:
@@ -16,17 +16,19 @@ prometheus:
         cpu: 500m
         memory: 512Mi
       requests:
-        cpu: 200m
-        memory: 256Mi
+        cpu: 20m
+        memory: 32Mi
     storageSpec:
-      volumeClaimTemplate:
-        spec:
-          accessModes: ["ReadWriteOnce"]
-          resources:
-            requests:
-              storage: 10Gi
+      emptyDir: {}
     scrapeInterval: 30s
     evaluationInterval: 30s
+    nodeSelector:
+      node-role.kubernetes.io/gpu-node: "true"
+    tolerations:
+      - key: "gpu-node"
+        operator: "Equal"
+        value: "true"
+        effect: "NoSchedule"
 
 # -- Grafana configuration
 grafana:
@@ -34,16 +36,23 @@ grafana:
   adminPassword: admin
   resources:
     limits:
-      cpu: 200m
-      memory: 256Mi
+      cpu: 1
+      memory: 512Mi
     requests:
-      cpu: 100m
-      memory: 128Mi
+      cpu: 10m
+      memory: 56Mi
   ingress:
     enabled: false
   service:
-    type: NodePort
+    type: ClusterIP
     port: 3000
+  nodeSelector:
+    node-role.kubernetes.io/gpu-node: "true"
+  tolerations:
+    - key: "gpu-node"
+      operator: "Equal"
+      value: "true"
+      effect: "NoSchedule"
 
 # -- Alertmanager configuration
 alertmanager:
@@ -53,8 +62,16 @@ alertmanager:
       cpu: 100m
       memory: 128Mi
     requests:
-      cpu: 50m
-      memory: 64Mi
+      cpu: 10m
+      memory: 16Mi
+  alertmanagerSpec:
+    nodeSelector:
+      node-role.kubernetes.io/gpu-node: "true"
+    tolerations:
+      - key: "gpu-node"
+        operator: "Equal"
+        value: "true"
+        effect: "NoSchedule"
 
 # -- Node exporter (DaemonSet on all nodes)
 nodeExporter:
@@ -75,5 +92,12 @@ kubeStateMetrics:
       cpu: 100m
       memory: 128Mi
     requests:
-      cpu: 50m
-      memory: 64Mi
+      cpu: 10m
+      memory: 16Mi
+  nodeSelector:
+    node-role.kubernetes.io/gpu-node: "true"
+  tolerations:
+    - key: "gpu-node"
+      operator: "Equal"
+      value: "true"
+      effect: "NoSchedule"
