@@ -1,0 +1,28 @@
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: BackendTrafficPolicy
+metadata:
+  name: qwen-rate-limit
+  namespace: alpha
+spec:
+  targetRefs:
+    - group: aigateway.envoyproxy.io
+      kind: AIGatewayRoute
+      name: qwen-route
+  rateLimit:
+    type: Global
+    global:
+      rules:
+        - clientSelectors:
+            - headers:
+                - name: x-ai-eg-model
+                  value: qwen2.5-7b
+          limit:
+            requests: 60
+            unit: Minute
+        - clientSelectors:
+            - headers:
+                - name: x-ai-eg-model
+                  value: qwen2.5-7b
+          limit:
+            requests: 10000
+            unit: Minute

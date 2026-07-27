@@ -1,0 +1,35 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: alpha-gateway
+  namespace: alpha
+spec:
+  gatewayClassName: envoy
+  infrastructure:
+    parametersRef:
+      group: gateway.envoyproxy.io
+      kind: EnvoyProxy
+      name: alpha-gateway-proxy
+  listeners:
+    - name: llm-https
+      protocol: HTTPS
+      port: 443
+      hostname: llm.yacodata.com
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - name: alpha-tls-cert
+      allowedRoutes:
+        namespaces:
+          from: All
+    - name: chat-https
+      protocol: HTTPS
+      port: 443
+      hostname: chat.yacodata.com
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - name: alpha-tls-cert
+      allowedRoutes:
+        namespaces:
+          from: All

@@ -44,7 +44,7 @@ spec:
             - vllm.entrypoints.openai.api_server
           args:
             - --model
-            - Qwen/Qwen2.5-3B-Instruct  #Qwen/Qwen2.5-7B-Instruct
+            - Qwen/Qwen2.5-7B-Instruct
             - --port
             - "8100"
             - --host
@@ -75,7 +75,7 @@ spec:
           resources:
             limits:
               nvidia.com/gpu: "1"
-              memory: "20Gi"
+              memory: "30Gi"
             requests:
               nvidia.com/gpu: "1"
               memory: "8Gi"
@@ -95,4 +95,4 @@ spec:
             sizeLimit: "4Gi"
         - name: model-cache
           emptyDir:
-            sizeLimit: "20Gi"
+            sizeLimit: "30Gi"

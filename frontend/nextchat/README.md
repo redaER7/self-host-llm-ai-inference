@@ -1,28 +1,47 @@
 # NextChat — ChatGPT-Next-Web
 
-Frontend UI for self-hosted LLM inference. Served from the Hetzner CP node and calls Envoy AI Gateway on the GPU node via the browser.
+Frontend UI for self-hosted LLM inference. Served from the Hetzner CP node and calls the Envoy Gateway via the browser.
 
 ## Deploy
 
 ```bash
-kubectl create namespace frontend
+# Create the frontend secret first (password for chat UI)
+kubectl create secret generic nextchat-secret \
+  -n frontend \
+  --from-literal=code="your-chat-password"
+
+# Apply deployment + service
 kubectl apply -f deployment.yaml
 kubectl apply -f service.yaml
 ```
 
+## Deployment variants
+
+Each case has its own deployment file with case-specific settings:
+
+| Case | File | Model | CODE source |
+|------|------|-------|-------------|
+| α | `case_alpha/frontend/nextchat/deployment.yaml` | Qwen/Qwen2.5-3B-Instruct | `nextchat-secret` |
+| β | `frontend/nextchat/deployment.yaml` | qwen2.5-7b | `nextchat-secret` |
+
+## Env vars
+
+| Variable | Purpose |
+|----------|---------|
+| `BASE_URL` | LLM API endpoint (Envoy Gateway URL, no `/v1` suffix) |
+| `CUSTOM_MODELS` | Comma-separated model names to show in dropdown |
+| `CODE` | Password to access the chat UI (from Secret `nextchat-secret`) |
+
 ## Access
 
 ```
-http://<hetzner-cp-ip>:3080
+https://chat.yacodata.com
 ```
 
-Configure the API endpoint in NextChat settings:
-- **Endpoint**: `https://envoy-llm.yacodata.com:30080/v1`
-- **API Key**: (as configured in Envoy AI Gateway)
-- **Model**: `qwen2.5-7b`
+TLS is terminated at Envoy Gateway (cert-manager). NextChat serves plain HTTP internally on port 3000.
 
-Or set defaults via the deployment environment variables (`BASE_URL`, `OPENAI_API_KEY`).
+## Security
 
-## TLS (optional)
-
-Add Cloudflare proxy on `chat.yacodata.com` → Hetzner CP IP:3080, or add cert-manager + nginx ingress on the CP node.
+- The `CODE` env var protects the chat UI with a password
+- API calls from the browser use the configured BASE_URL (CORS must allow the frontend origin)
+- The Envoy Gateway terminates TLS before proxying to NextChat

@@ -2,7 +2,7 @@
 
 Self-host large language model inference on rented GPUs using Kubernetes, KServe, vLLM, and llm-d. Control plane on Hetzner Cloud, GPU workers on Vast.ai and RunPod.
 
-**Tags**: `k3s` `kserve` `vllm` `llm-d` `envoy-ai-gateway` `fastapi` `hetzner` `vast-ai` `runpod` `mig` `gpu-inference` `self-hosted-llm`
+**Tags**: `k3s` `vllm` `envoy-gateway` `hetzner` `trooper-ai` `vast-ai` `wireguard` `gpu-inference` `self-hosted-llm`
 
 We use **Vast.ai** on-demand instances for GPU workers — they allow quick deploy and delete cycles, fitting our need for ephemeral GPU capacity. For a comparison of GPU rental options across providers, see [How to Rent Affordable GPU for AI Inference](https://yacodata.com/en/blog/how-to-rent-affordable-gpu-for-ai-inference).
 
@@ -22,8 +22,8 @@ We use **Vast.ai** on-demand instances for GPU workers — they allow quick depl
 
 | Case | Name | Gateway | LLM Stack | GPU Provider | Models |
 |------|------|---------|-----------|-------------|--------|
-| **α** | alpha | FastAPI | vLLM (plain) | Vast.ai | DeepSeek 33B (single) |
-| **β** | beta | Envoy AI Gateway | KServe + vLLM + llm-d | Vast.ai | Qwen 2.5-7B (all on GPU node) |
+| **α** | alpha | Envoy Gateway (plain) | vLLM (direct) | Trooper AI | Qwen 2.5-3B |
+| **β** | beta | Envoy AI Gateway | KServe + vLLM + llm-d | Vast.ai | Qwen 2.5-7B |
 | **γ** | gamma | Envoy AI Gateway | KServe + vLLM + llm-d | Vast.ai (MIG) | Qwen 7B + Llama 3 70B |
 | **Ω** | omega | Envoy AI Gateway | KServe + vLLM + llm-d | RunPod | Qwen 7B + DeepSeek 33B + Llama 3 70B |
 
@@ -33,79 +33,63 @@ See [Plan.md](./Plan.md) for full architecture details.
 
 ## Case α (alpha) — Minimal Single Model
 
-Simplest possible path: a FastAPI reverse proxy in front of a single vLLM pod running on a Vast.ai GPU worker, with a WireGuard tunnel connecting the Hetzner control plane to the GPU node.
+Envoy Gateway (no AI Gateway) → vLLM on a Trooper AI GPU, with a WireGuard tunnel connecting the Hetzner control plane to the GPU node. Public HTTPS via cert-manager (Let's Encrypt DNS-01 Cloudflare) with `llm.yacodata.com` + `chat.yacodata.com` on a single SAN cert.
 
 ```
-Client ──kubectl port-forward──→ FastAPI Gateway (Hetzner CP, hostNetwork)
-                                       │
-                                 WireGuard tunnel (10.8.0.0/24)
-                                       │
-                                 vLLM (Vast.ai GPU, hostNetwork)
+Browser ──https──→ llm.yacodata.com / chat.yacodata.com (443)
+                      │
+                 socat (CP host, 443 → 30080)
+                      │
+                 Envoy Gateway proxy (CP, NodePort 30080)
+                    ├── /v1/*  → vLLM (GPU, vllm-service:8100 via WireGuard)
+                    └── /*     → NextChat (CP, nextchat:3000)
 ```
 
 | Component | Where | Detail |
 |-----------|-------|--------|
 | K3s control plane | Hetzner CX33 | K3s server, `node-role.kubernetes.io/control-plane` |
-| GPU worker | Vast.ai | K3s agent, `node-role.kubernetes.io/gpu-node`, taint `gpu-node=true:NoSchedule` |
-| FastAPI gateway | Hetzner CP | `hostNetwork: true`, nodeSelector for control-plane |
-| vLLM | Vast.ai GPU | `hostNetwork: true`, nodeSelector + toleration for gpu-node |
-| WireGuard tunnel | Hetzner CP ↔ Vast.ai | wg-easy on Hetzner, client on Vast.ai |
-| Client access | Local machine | `kubectl port-forward svc/llm-gateway 8080:8000` |
-
-Both pods use `hostNetwork: true` — the gateway reaches vLLM directly at the GPU node's WireGuard IP (`10.8.0.2:8000`), bypassing ClusterIP routing and avoiding cross-node VXLAN issues.
-
-### Requirements
-
-#### Kubernetes Cluster
-
-| Resource | Minimum | Recommended |
-|----------|---------|-------------|
-| Kubernetes version | v1.25+ | v1.32+ |
-| K3s version | v1.25+ | v1.32+ |
-| Control plane nodes | 1 | 3 (HA) |
-| vCPU per node | 4 | 8 |
-| RAM per node | 8 GB | 16 GB |
-| Disk per node | 40 GB | 80 GB |
-
-> **Reference**: We use Hetzner Cloud (e.g. CX33, 4 vCPU / 8 GB RAM, ~€10.70/mo). Any K8s-ready provider works.
-
-#### GPU (Vast.ai)
-
-| GPU | VRAM | Why |
-|-----|------|-----|
-| **RTX 4090** | 24 GB | Fits DeepSeek 33B AWQ (~19 GB) with room for KV cache |
-| RTX 6000 Ada | 48 GB | Overkill but works |
-
-#### Vast.ai template ports
-
-| Port | Purpose |
-|------|---------|
-| 8472 | Flannel VXLAN (cross-node pod networking) |
-| 10250 | Kubelet (kubectl exec, logs, port-forward) |
-
-#### Networking
-
-| Component | Requirement |
-|-----------|-------------|
-| K3s API (data plane) | Vast.ai → Hetzner via public IP, port 6443 open on Hetzner firewall |
-| Gateway → vLLM (data plane) | WireGuard tunnel (10.8.0.0/24), vLLM at 10.8.0.2:8000 |
-| Client → Gateway | `kubectl port-forward` via Hetzner CP |
+| GPU worker | Trooper AI | K3s agent, `node-role.kubernetes.io/gpu-node`, taint `gpu-node=true:NoSchedule` |
+| Envoy Gateway | Hetzner CP | Helm install (no AI Gateway, no extensions), proxy pod on CP node |
+| vLLM | GPU node | `hostNetwork: true`, `vllm/vllm-openai:latest`, HF download at startup |
+| NextChat | Hetzner CP | ClusterIP:3000, HTTP only (TLS at Envoy), password protected via `CODE` env var |
+| TLS | cert-manager | Let's Encrypt DNS-01 via Cloudflare, SAN cert for both domains |
+| WireGuard | Hetzner ↔ Trooper AI | Native WG, subnet 10.10.0.0/24 |
+| Port 443 | socat systemd service | `TCP-LISTEN:443 → TCP:127.0.0.1:30080` |
 
 ### What alpha does NOT include
 
 - KServe (no CRDs, no InferenceService)
-- llm-d (no router, no EPP scheduler, no prefix-cache routing)
+- llm-d (no router, no EPP scheduler)
 - Envoy AI Gateway (no token metering, no rate limiting)
 - Scale-to-zero (pod runs 24/7)
 - MIG or GPU sharing
 - Multi-model serving
+- Baked model image (downloads from HF at startup)
 
 ### When to use alpha
 
-- First deployment: learn the K3s + Vast.ai bootstrap workflow
-- Single model, low traffic, no advanced routing needed
-- Budget-conscious proof of concept
-- Baseline to compare against beta (llm-d improvements)
+- First deployment: learn the K3s + Trooper AI bootstrap workflow
+- Minimal stack: Envoy Gateway + vLLM + NextChat
+- Test public HTTPS inference before adding complexity
+- Baseline to compare against beta (KServe + llm-d improvements)
+
+### Quick Start
+
+```bash
+# 1. Set secrets
+export CLOUDFLARE_API_TOKEN=... REGISTRY_USERNAME=... REGISTRY_PASSWORD=... HF_TOKEN=... NEXTCHAT_CODE=...
+
+# 2. Create secrets
+bash case_alpha/k8s_secrets.sh
+
+# 3. Deploy everything
+bash case_alpha/k8s_deploy.sh
+
+# 4. Run once after deploy: socat port 443 forwarder
+bash hetzner-cp-node-socat.sh
+```
+
+See [case_alpha/README.md](./case_alpha/README.md) for full details.
 
 ---
 
@@ -148,7 +132,8 @@ See [case_gamma/README.md](./case_gamma/README.md) for details.
 | GPU provider bootstrap | [gpu_providers/](./gpu_providers/) | α β γ Ω |
 | Model image builder | [model-image/](./model-image/) | α β γ Ω |
 | Monitoring (Prometheus + Grafana + DCGM) | [monitoring/](./monitoring/) | β γ Ω |
-| NextChat frontend | [frontend/nextchat/](./frontend/nextchat/) | β |
+| NextChat frontend | [frontend/nextchat/](./frontend/nextchat/) | α β |
+| socat forwarder (443→30080) | root: `hetzner-cp-node-socat.sh` | α β |
 
 ---
 

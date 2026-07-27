@@ -1,0 +1,20 @@
+apiVersion: aigateway.envoyproxy.io/v1beta1
+kind: AIGatewayRoute
+metadata:
+  name: qwen-route
+  namespace: alpha
+spec:
+  parentRefs:
+    - name: alpha-gateway
+      namespace: alpha
+      sectionName: llm-https
+  rules:
+    - backendRefs:
+        - name: qwen-aiservicebackend
+  llmRequestCosts:
+    - metadataKey: llm_input_token
+      type: InputToken
+    - metadataKey: llm_output_token
+      type: OutputToken
+    - metadataKey: llm_total_token
+      type: TotalToken
