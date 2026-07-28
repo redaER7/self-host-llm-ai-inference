@@ -19,7 +19,13 @@ prometheus:
         cpu: 20m
         memory: 32Mi
     storageSpec:
-      emptyDir: {}
+      volumeClaimTemplate:
+        spec:
+          accessModes:
+            - ReadWriteOnce
+          resources:
+            requests:
+              storage: 5Gi
     scrapeInterval: 30s
     evaluationInterval: 30s
     nodeSelector:
@@ -41,6 +47,9 @@ grafana:
     requests:
       cpu: 10m
       memory: 56Mi
+  persistence:
+    enabled: true
+    size: 5Gi
   ingress:
     enabled: false
   service:
