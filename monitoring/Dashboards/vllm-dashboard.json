@@ -7,11 +7,11 @@
         "enable": true,
         "hide": true,
         "iconColor": "rgba(0, 211, 255, 1)",
-        "legacyOptions": {
-          "$$hashKey": "object:192"
-        },
         "name": "Annotations & Alerts",
         "query": {
+          "datasource": {
+            "name": "-- Grafana --"
+          },
           "group": "grafana",
           "kind": "DataQuery",
           "spec": {},
@@ -21,10 +21,10 @@
     }
   ],
   "cursorSync": "Off",
-  "description": "This dashboard is to display the metrics from DCGM Exporter on a Kubernetes (1.13+) cluster",
+  "description": "vLLM Dashboard",
   "editable": true,
   "elements": {
-    "panel-10": {
+    "panel-1": {
       "kind": "Panel",
       "spec": {
         "data": {
@@ -42,9 +42,10 @@
                     "group": "prometheus",
                     "kind": "DataQuery",
                     "spec": {
-                      "expr": "DCGM_FI_DEV_POWER_USAGE{instance=~\"${instance}\", gpu=~\"${gpu}\"}",
-                      "interval": "",
-                      "legendFormat": "GPU {{gpu}}"
+                      "editorMode": "code",
+                      "expr": "rate(vllm:iteration_tokens_total_sum[5m])",
+                      "legendFormat": "Iteration Tokens Total",
+                      "range": true
                     },
                     "version": "v0"
                   },
@@ -57,9 +58,9 @@
           }
         },
         "description": "",
-        "id": 10,
+        "id": 1,
         "links": [],
-        "title": "GPU Power Usage",
+        "title": "vLLM Iterations Token",
         "vizConfig": {
           "group": "timeseries",
           "kind": "VizConfig",
@@ -78,7 +79,7 @@
                   "barAlignment": 0,
                   "barWidthFactor": 0.6,
                   "drawStyle": "line",
-                  "fillOpacity": 10,
+                  "fillOpacity": 0,
                   "gradientMode": "none",
                   "hideFrom": {
                     "legend": false,
@@ -87,12 +88,12 @@
                   },
                   "insertNulls": false,
                   "lineInterpolation": "linear",
-                  "lineWidth": 2,
+                  "lineWidth": 1,
                   "pointSize": 5,
                   "scaleDistribution": {
                     "type": "linear"
                   },
-                  "showPoints": "never",
+                  "showPoints": "auto",
                   "showValues": false,
                   "spanNulls": false,
                   "stacking": {
@@ -116,7 +117,7 @@
                     }
                   ]
                 },
-                "unit": "watt"
+                "unit": "ops"
               },
               "overrides": []
             },
@@ -125,474 +126,17 @@
                 "clustering": -1,
                 "multiLane": false
               },
-              "dataLinks": [],
               "legend": {
-                "calcs": [
-                  "mean",
-                  "lastNotNull",
-                  "max"
-                ],
-                "displayMode": "table",
-                "enableFacetedFilter": false,
-                "overflow": "ellipsis",
-                "placement": "right",
-                "showLegend": true
-              },
-              "tooltip": {
-                "hideZeros": false,
-                "mode": "multi",
-                "sort": "none"
-              }
-            }
-          },
-          "version": "13.1.1"
-        }
-      }
-    },
-    "panel-12": {
-      "kind": "Panel",
-      "spec": {
-        "data": {
-          "kind": "QueryGroup",
-          "spec": {
-            "queries": [
-              {
-                "kind": "PanelQuery",
-                "spec": {
-                  "hidden": false,
-                  "query": {
-                    "datasource": {
-                      "name": "prometheus"
-                    },
-                    "group": "prometheus",
-                    "kind": "DataQuery",
-                    "spec": {
-                      "expr": "DCGM_FI_DEV_GPU_TEMP{instance=~\"${instance}\", gpu=~\"${gpu}\"}",
-                      "instant": false,
-                      "interval": "",
-                      "legendFormat": "GPU {{gpu}}"
-                    },
-                    "version": "v0"
-                  },
-                  "refId": "A"
-                }
-              }
-            ],
-            "queryOptions": {},
-            "transformations": []
-          }
-        },
-        "description": "",
-        "id": 12,
-        "links": [],
-        "title": "GPU Temperature",
-        "vizConfig": {
-          "group": "timeseries",
-          "kind": "VizConfig",
-          "spec": {
-            "fieldConfig": {
-              "defaults": {
-                "color": {
-                  "mode": "palette-classic"
-                },
-                "custom": {
-                  "axisBorderShow": false,
-                  "axisCenteredZero": false,
-                  "axisColorMode": "text",
-                  "axisLabel": "",
-                  "axisPlacement": "auto",
-                  "barAlignment": 0,
-                  "barWidthFactor": 0.6,
-                  "drawStyle": "line",
-                  "fillOpacity": 10,
-                  "gradientMode": "none",
-                  "hideFrom": {
-                    "legend": false,
-                    "tooltip": false,
-                    "viz": false
-                  },
-                  "insertNulls": false,
-                  "lineInterpolation": "linear",
-                  "lineWidth": 2,
-                  "pointSize": 5,
-                  "scaleDistribution": {
-                    "type": "linear"
-                  },
-                  "showPoints": "never",
-                  "showValues": false,
-                  "spanNulls": false,
-                  "stacking": {
-                    "group": "A",
-                    "mode": "none"
-                  },
-                  "thresholdsStyle": {
-                    "mode": "off"
-                  }
-                },
-                "thresholds": {
-                  "mode": "absolute",
-                  "steps": [
-                    {
-                      "color": "green",
-                      "value": 0
-                    },
-                    {
-                      "color": "red",
-                      "value": 80
-                    }
-                  ]
-                },
-                "unit": "celsius"
-              },
-              "overrides": []
-            },
-            "options": {
-              "annotations": {
-                "clustering": -1,
-                "multiLane": false
-              },
-              "dataLinks": [],
-              "legend": {
-                "calcs": [
-                  "mean",
-                  "lastNotNull",
-                  "max"
-                ],
-                "displayMode": "table",
-                "enableFacetedFilter": false,
-                "overflow": "ellipsis",
-                "placement": "right",
-                "showLegend": true
-              },
-              "tooltip": {
-                "hideZeros": false,
-                "mode": "multi",
-                "sort": "none"
-              }
-            }
-          },
-          "version": "13.1.1"
-        }
-      }
-    },
-    "panel-14": {
-      "kind": "Panel",
-      "spec": {
-        "data": {
-          "kind": "QueryGroup",
-          "spec": {
-            "queries": [
-              {
-                "kind": "PanelQuery",
-                "spec": {
-                  "hidden": false,
-                  "query": {
-                    "datasource": {
-                      "name": "prometheus"
-                    },
-                    "group": "prometheus",
-                    "kind": "DataQuery",
-                    "spec": {
-                      "expr": "avg(DCGM_FI_DEV_GPU_TEMP{instance=~\"${instance}\", gpu=~\"${gpu}\"})",
-                      "interval": "",
-                      "legendFormat": ""
-                    },
-                    "version": "v0"
-                  },
-                  "refId": "A"
-                }
-              }
-            ],
-            "queryOptions": {},
-            "transformations": []
-          }
-        },
-        "description": "",
-        "id": 14,
-        "links": [],
-        "title": "GPU Avg. Temp",
-        "vizConfig": {
-          "group": "gauge",
-          "kind": "VizConfig",
-          "spec": {
-            "fieldConfig": {
-              "defaults": {
-                "color": {
-                  "mode": "thresholds"
-                },
-                "max": 100,
-                "min": 0,
-                "thresholds": {
-                  "mode": "absolute",
-                  "steps": [
-                    {
-                      "color": "green",
-                      "value": 0
-                    },
-                    {
-                      "color": "#EAB839",
-                      "value": 83
-                    },
-                    {
-                      "color": "red",
-                      "value": 87
-                    }
-                  ]
-                },
-                "unit": "celsius"
-              },
-              "overrides": []
-            },
-            "options": {
-              "barShape": "flat",
-              "barWidthFactor": 0.5,
-              "effects": {
-                "barGlow": false,
-                "centerGlow": false,
-                "gradient": false
-              },
-              "endpointMarker": "point",
-              "minVizHeight": 75,
-              "minVizWidth": 75,
-              "orientation": "auto",
-              "reduceOptions": {
-                "calcs": [
-                  "mean"
-                ],
-                "fields": "",
-                "values": false
-              },
-              "segmentCount": 1,
-              "segmentSpacing": 0.3,
-              "shape": "gauge",
-              "showThresholdLabels": false,
-              "showThresholdMarkers": true,
-              "sizing": "auto",
-              "sparkline": false,
-              "textMode": "auto"
-            }
-          },
-          "version": "13.1.1"
-        }
-      }
-    },
-    "panel-16": {
-      "kind": "Panel",
-      "spec": {
-        "data": {
-          "kind": "QueryGroup",
-          "spec": {
-            "queries": [
-              {
-                "kind": "PanelQuery",
-                "spec": {
-                  "hidden": false,
-                  "query": {
-                    "datasource": {
-                      "name": "prometheus"
-                    },
-                    "group": "prometheus",
-                    "kind": "DataQuery",
-                    "spec": {
-                      "expr": "sum(DCGM_FI_DEV_POWER_USAGE{instance=~\"${instance}\", gpu=~\"${gpu}\"})",
-                      "interval": "",
-                      "legendFormat": ""
-                    },
-                    "version": "v0"
-                  },
-                  "refId": "A"
-                }
-              }
-            ],
-            "queryOptions": {},
-            "transformations": []
-          }
-        },
-        "description": "",
-        "id": 16,
-        "links": [],
-        "title": "GPU Power Total",
-        "vizConfig": {
-          "group": "gauge",
-          "kind": "VizConfig",
-          "spec": {
-            "fieldConfig": {
-              "defaults": {
-                "color": {
-                  "mode": "thresholds"
-                },
-                "max": 2400,
-                "min": 0,
-                "thresholds": {
-                  "mode": "absolute",
-                  "steps": [
-                    {
-                      "color": "green",
-                      "value": 0
-                    },
-                    {
-                      "color": "#EAB839",
-                      "value": 1800
-                    },
-                    {
-                      "color": "red",
-                      "value": 2200
-                    }
-                  ]
-                },
-                "unit": "watt"
-              },
-              "overrides": []
-            },
-            "options": {
-              "barShape": "flat",
-              "barWidthFactor": 0.5,
-              "effects": {
-                "barGlow": false,
-                "centerGlow": false,
-                "gradient": false
-              },
-              "endpointMarker": "point",
-              "minVizHeight": 75,
-              "minVizWidth": 75,
-              "orientation": "horizontal",
-              "reduceOptions": {
-                "calcs": [
-                  "sum"
-                ],
-                "fields": "",
-                "values": false
-              },
-              "segmentCount": 1,
-              "segmentSpacing": 0.3,
-              "shape": "gauge",
-              "showThresholdLabels": false,
-              "showThresholdMarkers": true,
-              "sizing": "auto",
-              "sparkline": false,
-              "textMode": "auto"
-            }
-          },
-          "version": "13.1.1"
-        }
-      }
-    },
-    "panel-18": {
-      "kind": "Panel",
-      "spec": {
-        "data": {
-          "kind": "QueryGroup",
-          "spec": {
-            "queries": [
-              {
-                "kind": "PanelQuery",
-                "spec": {
-                  "hidden": false,
-                  "query": {
-                    "datasource": {
-                      "name": "prometheus"
-                    },
-                    "group": "prometheus",
-                    "kind": "DataQuery",
-                    "spec": {
-                      "expr": "DCGM_FI_DEV_FB_USED{instance=~\"${instance}\", gpu=~\"${gpu}\"}",
-                      "interval": "",
-                      "legendFormat": "GPU {{gpu}}"
-                    },
-                    "version": "v0"
-                  },
-                  "refId": "A"
-                }
-              }
-            ],
-            "queryOptions": {},
-            "transformations": []
-          }
-        },
-        "description": "",
-        "id": 18,
-        "links": [],
-        "title": "GPU Framebuffer Mem Used",
-        "vizConfig": {
-          "group": "timeseries",
-          "kind": "VizConfig",
-          "spec": {
-            "fieldConfig": {
-              "defaults": {
-                "color": {
-                  "mode": "palette-classic"
-                },
-                "custom": {
-                  "axisBorderShow": false,
-                  "axisCenteredZero": false,
-                  "axisColorMode": "text",
-                  "axisLabel": "",
-                  "axisPlacement": "auto",
-                  "barAlignment": 0,
-                  "barWidthFactor": 0.6,
-                  "drawStyle": "line",
-                  "fillOpacity": 10,
-                  "gradientMode": "none",
-                  "hideFrom": {
-                    "legend": false,
-                    "tooltip": false,
-                    "viz": false
-                  },
-                  "insertNulls": false,
-                  "lineInterpolation": "linear",
-                  "lineWidth": 2,
-                  "pointSize": 5,
-                  "scaleDistribution": {
-                    "type": "linear"
-                  },
-                  "showPoints": "never",
-                  "showValues": false,
-                  "spanNulls": false,
-                  "stacking": {
-                    "group": "A",
-                    "mode": "none"
-                  },
-                  "thresholdsStyle": {
-                    "mode": "off"
-                  }
-                },
-                "thresholds": {
-                  "mode": "absolute",
-                  "steps": [
-                    {
-                      "color": "green",
-                      "value": 0
-                    },
-                    {
-                      "color": "red",
-                      "value": 80
-                    }
-                  ]
-                },
-                "unit": "decmbytes"
-              },
-              "overrides": []
-            },
-            "options": {
-              "annotations": {
-                "clustering": -1,
-                "multiLane": false
-              },
-              "dataLinks": [],
-              "legend": {
-                "calcs": [
-                  "mean",
-                  "max"
-                ],
+                "calcs": [],
                 "displayMode": "list",
                 "enableFacetedFilter": false,
                 "overflow": "ellipsis",
-                "placement": "right",
+                "placement": "bottom",
                 "showLegend": true
               },
               "tooltip": {
                 "hideZeros": false,
-                "mode": "multi",
+                "mode": "single",
                 "sort": "none"
               }
             }
@@ -619,11 +163,10 @@
                     "group": "prometheus",
                     "kind": "DataQuery",
                     "spec": {
-                      "expr": "DCGM_FI_DEV_SM_CLOCK{instance=~\"${instance}\", gpu=~\"${gpu}\"} * 1000000",
-                      "format": "time_series",
-                      "interval": "",
-                      "intervalFactor": 1,
-                      "legendFormat": "GPU {{gpu}}"
+                      "editorMode": "code",
+                      "expr": "vllm:generation_tokens_total",
+                      "legendFormat": "Generation Tokens Total",
+                      "range": true
                     },
                     "version": "v0"
                   },
@@ -638,7 +181,7 @@
         "description": "",
         "id": 2,
         "links": [],
-        "title": "GPU SM Clocks",
+        "title": "vLLM Generations Tokens",
         "vizConfig": {
           "group": "timeseries",
           "kind": "VizConfig",
@@ -657,7 +200,7 @@
                   "barAlignment": 0,
                   "barWidthFactor": 0.6,
                   "drawStyle": "line",
-                  "fillOpacity": 10,
+                  "fillOpacity": 0,
                   "gradientMode": "none",
                   "hideFrom": {
                     "legend": false,
@@ -666,12 +209,12 @@
                   },
                   "insertNulls": false,
                   "lineInterpolation": "linear",
-                  "lineWidth": 2,
+                  "lineWidth": 1,
                   "pointSize": 5,
                   "scaleDistribution": {
                     "type": "linear"
                   },
-                  "showPoints": "never",
+                  "showPoints": "auto",
                   "showValues": false,
                   "spanNulls": false,
                   "stacking": {
@@ -695,7 +238,7 @@
                     }
                   ]
                 },
-                "unit": "hertz"
+                "unit": "short"
               },
               "overrides": []
             },
@@ -704,22 +247,159 @@
                 "clustering": -1,
                 "multiLane": false
               },
-              "dataLinks": [],
               "legend": {
-                "calcs": [
-                  "mean",
-                  "lastNotNull",
-                  "max"
-                ],
-                "displayMode": "table",
+                "calcs": [],
+                "displayMode": "list",
                 "enableFacetedFilter": false,
                 "overflow": "ellipsis",
-                "placement": "right",
+                "placement": "bottom",
                 "showLegend": true
               },
               "tooltip": {
                 "hideZeros": false,
-                "mode": "multi",
+                "mode": "single",
+                "sort": "none"
+              }
+            }
+          },
+          "version": "13.1.1"
+        }
+      }
+    },
+    "panel-3": {
+      "kind": "Panel",
+      "spec": {
+        "data": {
+          "kind": "QueryGroup",
+          "spec": {
+            "queries": [
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "prometheus"
+                    },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "editorMode": "code",
+                      "expr": "histogram_quantile(0.5, sum(rate(vllm:request_time_per_output_token_seconds_bucket[5m])) by (le, model_name))",
+                      "legendFormat": "Time per output token p50",
+                      "range": true
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "A"
+                }
+              },
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "prometheus"
+                    },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "editorMode": "code",
+                      "expr": "histogram_quantile(0.95, rate(vllm:time_per_output_token_seconds_bucket[5m]))",
+                      "legendFormat": "Time per output token p95",
+                      "range": true
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "B"
+                }
+              }
+            ],
+            "queryOptions": {},
+            "transformations": []
+          }
+        },
+        "description": "",
+        "id": 3,
+        "links": [],
+        "title": "vLLM Time Per Output Token",
+        "vizConfig": {
+          "group": "timeseries",
+          "kind": "VizConfig",
+          "spec": {
+            "fieldConfig": {
+              "defaults": {
+                "color": {
+                  "mode": "palette-classic"
+                },
+                "custom": {
+                  "axisBorderShow": false,
+                  "axisCenteredZero": false,
+                  "axisColorMode": "text",
+                  "axisLabel": "",
+                  "axisPlacement": "auto",
+                  "barAlignment": 0,
+                  "barWidthFactor": 0.6,
+                  "drawStyle": "line",
+                  "fillOpacity": 0,
+                  "gradientMode": "none",
+                  "hideFrom": {
+                    "legend": false,
+                    "tooltip": false,
+                    "viz": false
+                  },
+                  "insertNulls": false,
+                  "lineInterpolation": "linear",
+                  "lineWidth": 1,
+                  "pointSize": 5,
+                  "scaleDistribution": {
+                    "type": "linear"
+                  },
+                  "showPoints": "auto",
+                  "showValues": false,
+                  "spanNulls": false,
+                  "stacking": {
+                    "group": "A",
+                    "mode": "none"
+                  },
+                  "thresholdsStyle": {
+                    "mode": "off"
+                  }
+                },
+                "thresholds": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": 0
+                    },
+                    {
+                      "color": "red",
+                      "value": 80
+                    }
+                  ]
+                },
+                "unit": "s"
+              },
+              "overrides": []
+            },
+            "options": {
+              "annotations": {
+                "clustering": -1,
+                "multiLane": false
+              },
+              "legend": {
+                "calcs": [],
+                "displayMode": "list",
+                "enableFacetedFilter": false,
+                "overflow": "ellipsis",
+                "placement": "bottom",
+                "showLegend": true
+              },
+              "tooltip": {
+                "hideZeros": false,
+                "mode": "single",
                 "sort": "none"
               }
             }
@@ -746,13 +426,35 @@
                     "group": "prometheus",
                     "kind": "DataQuery",
                     "spec": {
-                      "expr": "DCGM_FI_PROF_PIPE_TENSOR_ACTIVE{instance=~\"${instance}\", gpu=~\"${gpu}\"}",
-                      "interval": "",
-                      "legendFormat": "GPU {{gpu}}"
+                      "editorMode": "code",
+                      "expr": "histogram_quantile(0.5, rate(vllm:time_to_first_token_seconds_bucket[5m]))",
+                      "legendFormat": "TTFT p50",
+                      "range": true
                     },
                     "version": "v0"
                   },
                   "refId": "A"
+                }
+              },
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "prometheus"
+                    },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "editorMode": "code",
+                      "expr": "histogram_quantile(0.95, rate(vllm:time_to_first_token_seconds_bucket[5m]))",
+                      "legendFormat": "TTFT p95",
+                      "range": true
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "B"
                 }
               }
             ],
@@ -763,7 +465,7 @@
         "description": "",
         "id": 4,
         "links": [],
-        "title": "Tensor Core Utilization",
+        "title": "TTFT",
         "vizConfig": {
           "group": "timeseries",
           "kind": "VizConfig",
@@ -782,7 +484,7 @@
                   "barAlignment": 0,
                   "barWidthFactor": 0.6,
                   "drawStyle": "line",
-                  "fillOpacity": 10,
+                  "fillOpacity": 0,
                   "gradientMode": "none",
                   "hideFrom": {
                     "legend": false,
@@ -791,12 +493,12 @@
                   },
                   "insertNulls": false,
                   "lineInterpolation": "linear",
-                  "lineWidth": 2,
+                  "lineWidth": 1,
                   "pointSize": 5,
                   "scaleDistribution": {
                     "type": "linear"
                   },
-                  "showPoints": "never",
+                  "showPoints": "auto",
                   "showValues": false,
                   "spanNulls": false,
                   "stacking": {
@@ -807,8 +509,6 @@
                     "mode": "off"
                   }
                 },
-                "max": 1,
-                "min": 0,
                 "thresholds": {
                   "mode": "absolute",
                   "steps": [
@@ -822,7 +522,7 @@
                     }
                   ]
                 },
-                "unit": "percentunit"
+                "unit": "s"
               },
               "overrides": []
             },
@@ -831,22 +531,159 @@
                 "clustering": -1,
                 "multiLane": false
               },
-              "dataLinks": [],
               "legend": {
-                "calcs": [
-                  "mean",
-                  "lastNotNull",
-                  "max"
-                ],
-                "displayMode": "table",
+                "calcs": [],
+                "displayMode": "list",
                 "enableFacetedFilter": false,
                 "overflow": "ellipsis",
-                "placement": "right",
+                "placement": "bottom",
                 "showLegend": true
               },
               "tooltip": {
                 "hideZeros": false,
-                "mode": "multi",
+                "mode": "single",
+                "sort": "none"
+              }
+            }
+          },
+          "version": "13.1.1"
+        }
+      }
+    },
+    "panel-5": {
+      "kind": "Panel",
+      "spec": {
+        "data": {
+          "kind": "QueryGroup",
+          "spec": {
+            "queries": [
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "prometheus"
+                    },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "editorMode": "code",
+                      "expr": "histogram_quantile(0.5, rate(vllm:request_queue_time_seconds_bucket[5m]))",
+                      "legendFormat": "Queue Time p50",
+                      "range": true
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "A"
+                }
+              },
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "prometheus"
+                    },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "editorMode": "code",
+                      "expr": "histogram_quantile(0.95, rate(vllm:request_queue_time_seconds_bucket[5m]))",
+                      "legendFormat": "Queue Time p95",
+                      "range": true
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "B"
+                }
+              }
+            ],
+            "queryOptions": {},
+            "transformations": []
+          }
+        },
+        "description": "",
+        "id": 5,
+        "links": [],
+        "title": "vLLM Time in Queue Requests",
+        "vizConfig": {
+          "group": "timeseries",
+          "kind": "VizConfig",
+          "spec": {
+            "fieldConfig": {
+              "defaults": {
+                "color": {
+                  "mode": "palette-classic"
+                },
+                "custom": {
+                  "axisBorderShow": false,
+                  "axisCenteredZero": false,
+                  "axisColorMode": "text",
+                  "axisLabel": "",
+                  "axisPlacement": "auto",
+                  "barAlignment": 0,
+                  "barWidthFactor": 0.6,
+                  "drawStyle": "line",
+                  "fillOpacity": 0,
+                  "gradientMode": "none",
+                  "hideFrom": {
+                    "legend": false,
+                    "tooltip": false,
+                    "viz": false
+                  },
+                  "insertNulls": false,
+                  "lineInterpolation": "linear",
+                  "lineWidth": 1,
+                  "pointSize": 5,
+                  "scaleDistribution": {
+                    "type": "linear"
+                  },
+                  "showPoints": "auto",
+                  "showValues": false,
+                  "spanNulls": false,
+                  "stacking": {
+                    "group": "A",
+                    "mode": "none"
+                  },
+                  "thresholdsStyle": {
+                    "mode": "off"
+                  }
+                },
+                "thresholds": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": 0
+                    },
+                    {
+                      "color": "red",
+                      "value": 80
+                    }
+                  ]
+                },
+                "unit": "s"
+              },
+              "overrides": []
+            },
+            "options": {
+              "annotations": {
+                "clustering": -1,
+                "multiLane": false
+              },
+              "legend": {
+                "calcs": [],
+                "displayMode": "list",
+                "enableFacetedFilter": false,
+                "overflow": "ellipsis",
+                "placement": "bottom",
+                "showLegend": true
+              },
+              "tooltip": {
+                "hideZeros": false,
+                "mode": "single",
                 "sort": "none"
               }
             }
@@ -873,13 +710,35 @@
                     "group": "prometheus",
                     "kind": "DataQuery",
                     "spec": {
-                      "expr": "DCGM_FI_DEV_GPU_UTIL{instance=~\"${instance}\", gpu=~\"${gpu}\"}",
-                      "interval": "",
-                      "legendFormat": "GPU {{gpu}}"
+                      "editorMode": "code",
+                      "expr": "histogram_quantile(0.5, rate(vllm:request_prompt_tokens_bucket[5m]))",
+                      "legendFormat": "Prompt Tokens p50",
+                      "range": true
                     },
                     "version": "v0"
                   },
                   "refId": "A"
+                }
+              },
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "prometheus"
+                    },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "editorMode": "code",
+                      "expr": "histogram_quantile(0.95, rate(vllm:request_prompt_tokens_bucket[5m]))",
+                      "legendFormat": "Prompt Tokens p95",
+                      "range": true
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "B"
                 }
               }
             ],
@@ -890,7 +749,7 @@
         "description": "",
         "id": 6,
         "links": [],
-        "title": "GPU Utilization",
+        "title": "vLLM Request Prompt Tokens",
         "vizConfig": {
           "group": "timeseries",
           "kind": "VizConfig",
@@ -909,7 +768,7 @@
                   "barAlignment": 0,
                   "barWidthFactor": 0.6,
                   "drawStyle": "line",
-                  "fillOpacity": 10,
+                  "fillOpacity": 0,
                   "gradientMode": "none",
                   "hideFrom": {
                     "legend": false,
@@ -918,12 +777,12 @@
                   },
                   "insertNulls": false,
                   "lineInterpolation": "linear",
-                  "lineWidth": 2,
+                  "lineWidth": 1,
                   "pointSize": 5,
                   "scaleDistribution": {
                     "type": "linear"
                   },
-                  "showPoints": "never",
+                  "showPoints": "auto",
                   "showValues": false,
                   "spanNulls": false,
                   "stacking": {
@@ -934,8 +793,6 @@
                     "mode": "off"
                   }
                 },
-                "max": 100,
-                "min": 0,
                 "thresholds": {
                   "mode": "absolute",
                   "steps": [
@@ -949,7 +806,7 @@
                     }
                   ]
                 },
-                "unit": "percent"
+                "unit": "short"
               },
               "overrides": []
             },
@@ -958,22 +815,571 @@
                 "clustering": -1,
                 "multiLane": false
               },
-              "dataLinks": [],
               "legend": {
-                "calcs": [
-                  "mean",
-                  "lastNotNull",
-                  "max"
-                ],
-                "displayMode": "table",
+                "calcs": [],
+                "displayMode": "list",
                 "enableFacetedFilter": false,
                 "overflow": "ellipsis",
-                "placement": "right",
+                "placement": "bottom",
                 "showLegend": true
               },
               "tooltip": {
                 "hideZeros": false,
-                "mode": "multi",
+                "mode": "single",
+                "sort": "none"
+              }
+            }
+          },
+          "version": "13.1.1"
+        }
+      }
+    },
+    "panel-7": {
+      "kind": "Panel",
+      "spec": {
+        "data": {
+          "kind": "QueryGroup",
+          "spec": {
+            "queries": [
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "prometheus"
+                    },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "editorMode": "code",
+                      "expr": "histogram_quantile(0.5, rate(vllm:request_inference_time_seconds_bucket[5m]))",
+                      "legendFormat": "Inference Time p50",
+                      "range": true
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "A"
+                }
+              },
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "prometheus"
+                    },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "editorMode": "code",
+                      "expr": "histogram_quantile(0.95, rate(vllm:request_inference_time_seconds_bucket[5m]))",
+                      "legendFormat": "Inference Time p95",
+                      "range": true
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "B"
+                }
+              }
+            ],
+            "queryOptions": {},
+            "transformations": []
+          }
+        },
+        "description": "",
+        "id": 7,
+        "links": [],
+        "title": "vLLM Request Inference Time",
+        "vizConfig": {
+          "group": "timeseries",
+          "kind": "VizConfig",
+          "spec": {
+            "fieldConfig": {
+              "defaults": {
+                "color": {
+                  "mode": "palette-classic"
+                },
+                "custom": {
+                  "axisBorderShow": false,
+                  "axisCenteredZero": false,
+                  "axisColorMode": "text",
+                  "axisLabel": "",
+                  "axisPlacement": "auto",
+                  "barAlignment": 0,
+                  "barWidthFactor": 0.6,
+                  "drawStyle": "line",
+                  "fillOpacity": 0,
+                  "gradientMode": "none",
+                  "hideFrom": {
+                    "legend": false,
+                    "tooltip": false,
+                    "viz": false
+                  },
+                  "insertNulls": false,
+                  "lineInterpolation": "linear",
+                  "lineWidth": 1,
+                  "pointSize": 5,
+                  "scaleDistribution": {
+                    "type": "linear"
+                  },
+                  "showPoints": "auto",
+                  "showValues": false,
+                  "spanNulls": false,
+                  "stacking": {
+                    "group": "A",
+                    "mode": "none"
+                  },
+                  "thresholdsStyle": {
+                    "mode": "off"
+                  }
+                },
+                "thresholds": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": 0
+                    },
+                    {
+                      "color": "red",
+                      "value": 80
+                    }
+                  ]
+                },
+                "unit": "s"
+              },
+              "overrides": []
+            },
+            "options": {
+              "annotations": {
+                "clustering": -1,
+                "multiLane": false
+              },
+              "legend": {
+                "calcs": [],
+                "displayMode": "list",
+                "enableFacetedFilter": false,
+                "overflow": "ellipsis",
+                "placement": "bottom",
+                "showLegend": true
+              },
+              "tooltip": {
+                "hideZeros": false,
+                "mode": "single",
+                "sort": "none"
+              }
+            }
+          },
+          "version": "13.1.1"
+        }
+      }
+    },
+    "panel-8": {
+      "kind": "Panel",
+      "spec": {
+        "data": {
+          "kind": "QueryGroup",
+          "spec": {
+            "queries": [
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "prometheus"
+                    },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "editorMode": "code",
+                      "expr": "vllm:num_preemptions_total",
+                      "legendFormat": "Preemptions Total",
+                      "range": true
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "A"
+                }
+              },
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "prometheus"
+                    },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "editorMode": "code",
+                      "expr": "rate(vllm:num_preemptions_total[5m])",
+                      "legendFormat": "Preemptions Rate",
+                      "range": true
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "B"
+                }
+              }
+            ],
+            "queryOptions": {},
+            "transformations": []
+          }
+        },
+        "description": "",
+        "id": 8,
+        "links": [],
+        "title": "vLLM Num Preemptions Total",
+        "vizConfig": {
+          "group": "timeseries",
+          "kind": "VizConfig",
+          "spec": {
+            "fieldConfig": {
+              "defaults": {
+                "color": {
+                  "mode": "palette-classic"
+                },
+                "custom": {
+                  "axisBorderShow": false,
+                  "axisCenteredZero": false,
+                  "axisColorMode": "text",
+                  "axisLabel": "",
+                  "axisPlacement": "auto",
+                  "barAlignment": 0,
+                  "barWidthFactor": 0.6,
+                  "drawStyle": "line",
+                  "fillOpacity": 0,
+                  "gradientMode": "none",
+                  "hideFrom": {
+                    "legend": false,
+                    "tooltip": false,
+                    "viz": false
+                  },
+                  "insertNulls": false,
+                  "lineInterpolation": "linear",
+                  "lineWidth": 1,
+                  "pointSize": 5,
+                  "scaleDistribution": {
+                    "type": "linear"
+                  },
+                  "showPoints": "auto",
+                  "showValues": false,
+                  "spanNulls": false,
+                  "stacking": {
+                    "group": "A",
+                    "mode": "none"
+                  },
+                  "thresholdsStyle": {
+                    "mode": "off"
+                  }
+                },
+                "thresholds": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": 0
+                    },
+                    {
+                      "color": "red",
+                      "value": 80
+                    }
+                  ]
+                },
+                "unit": "short"
+              },
+              "overrides": []
+            },
+            "options": {
+              "annotations": {
+                "clustering": -1,
+                "multiLane": false
+              },
+              "legend": {
+                "calcs": [],
+                "displayMode": "list",
+                "enableFacetedFilter": false,
+                "overflow": "ellipsis",
+                "placement": "bottom",
+                "showLegend": true
+              },
+              "tooltip": {
+                "hideZeros": false,
+                "mode": "single",
+                "sort": "none"
+              }
+            }
+          },
+          "version": "13.1.1"
+        }
+      }
+    },
+    "panel-9": {
+      "kind": "Panel",
+      "spec": {
+        "data": {
+          "kind": "QueryGroup",
+          "spec": {
+            "queries": [
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "prometheus"
+                    },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "editorMode": "code",
+                      "expr": "vllm:kv_cache_usage_perc",
+                      "legendFormat": "KV Cache Usage",
+                      "range": true
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "A"
+                }
+              }
+            ],
+            "queryOptions": {},
+            "transformations": []
+          }
+        },
+        "description": "",
+        "id": 9,
+        "links": [],
+        "title": "KV Cache Usage",
+        "vizConfig": {
+          "group": "timeseries",
+          "kind": "VizConfig",
+          "spec": {
+            "fieldConfig": {
+              "defaults": {
+                "color": {
+                  "mode": "thresholds"
+                },
+                "custom": {
+                  "axisBorderShow": false,
+                  "axisCenteredZero": false,
+                  "axisColorMode": "text",
+                  "axisLabel": "",
+                  "axisPlacement": "auto",
+                  "barAlignment": 0,
+                  "barWidthFactor": 0.6,
+                  "drawStyle": "line",
+                  "fillOpacity": 30,
+                  "gradientMode": "scheme",
+                  "hideFrom": {
+                    "legend": false,
+                    "tooltip": false,
+                    "viz": false
+                  },
+                  "insertNulls": false,
+                  "lineInterpolation": "linear",
+                  "lineWidth": 1,
+                  "pointSize": 5,
+                  "scaleDistribution": {
+                    "type": "linear"
+                  },
+                  "showPoints": "auto",
+                  "showValues": false,
+                  "spanNulls": false,
+                  "stacking": {
+                    "group": "A",
+                    "mode": "none"
+                  },
+                  "thresholdsStyle": {
+                    "mode": "area"
+                  }
+                },
+                "mappings": [],
+                "max": 1,
+                "min": 0,
+                "thresholds": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": 0
+                    },
+                    {
+                      "color": "orange",
+                      "value": 0.7
+                    },
+                    {
+                      "color": "red",
+                      "value": 0.9
+                    }
+                  ]
+                },
+                "unit": "percentunit"
+              },
+              "overrides": []
+            },
+            "options": {
+              "annotations": {
+                "clustering": -1,
+                "multiLane": false
+              },
+              "legend": {
+                "calcs": [],
+                "displayMode": "list",
+                "enableFacetedFilter": false,
+                "overflow": "ellipsis",
+                "placement": "bottom",
+                "showLegend": true
+              },
+              "tooltip": {
+                "hideZeros": false,
+                "mode": "single",
+                "sort": "none"
+              }
+            }
+          },
+          "version": "13.1.1"
+        }
+      }
+    },
+    "panel-10": {
+      "kind": "Panel",
+      "spec": {
+        "data": {
+          "kind": "QueryGroup",
+          "spec": {
+            "queries": [
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "prometheus"
+                    },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "editorMode": "code",
+                      "expr": "vllm:num_requests_running",
+                      "legendFormat": "Running",
+                      "range": true
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "A"
+                }
+              },
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "prometheus"
+                    },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "editorMode": "code",
+                      "expr": "vllm:num_requests_waiting",
+                      "legendFormat": "Waiting",
+                      "range": true
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "B"
+                }
+              }
+            ],
+            "queryOptions": {},
+            "transformations": []
+          }
+        },
+        "description": "",
+        "id": 10,
+        "links": [],
+        "title": "Request Concurrency",
+        "vizConfig": {
+          "group": "timeseries",
+          "kind": "VizConfig",
+          "spec": {
+            "fieldConfig": {
+              "defaults": {
+                "color": {
+                  "mode": "palette-classic"
+                },
+                "custom": {
+                  "axisBorderShow": false,
+                  "axisCenteredZero": false,
+                  "axisColorMode": "text",
+                  "axisLabel": "",
+                  "axisPlacement": "auto",
+                  "barAlignment": 0,
+                  "barWidthFactor": 0.6,
+                  "drawStyle": "line",
+                  "fillOpacity": 0,
+                  "gradientMode": "none",
+                  "hideFrom": {
+                    "legend": false,
+                    "tooltip": false,
+                    "viz": false
+                  },
+                  "insertNulls": false,
+                  "lineInterpolation": "linear",
+                  "lineWidth": 1,
+                  "pointSize": 5,
+                  "scaleDistribution": {
+                    "type": "linear"
+                  },
+                  "showPoints": "auto",
+                  "showValues": false,
+                  "spanNulls": false,
+                  "stacking": {
+                    "group": "A",
+                    "mode": "none"
+                  },
+                  "thresholdsStyle": {
+                    "mode": "off"
+                  }
+                },
+                "thresholds": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": 0
+                    },
+                    {
+                      "color": "red",
+                      "value": 80
+                    }
+                  ]
+                },
+                "unit": "short"
+              },
+              "overrides": []
+            },
+            "options": {
+              "annotations": {
+                "clustering": -1,
+                "multiLane": false
+              },
+              "legend": {
+                "calcs": [],
+                "displayMode": "list",
+                "enableFacetedFilter": false,
+                "overflow": "ellipsis",
+                "placement": "bottom",
+                "showLegend": true
+              },
+              "tooltip": {
+                "hideZeros": false,
+                "mode": "single",
                 "sort": "none"
               }
             }
@@ -992,51 +1398,12 @@
           "spec": {
             "element": {
               "kind": "ElementReference",
-              "name": "panel-12"
+              "name": "panel-1"
             },
             "height": 8,
-            "width": 18,
+            "width": 12,
             "x": 0,
             "y": 0
-          }
-        },
-        {
-          "kind": "GridLayoutItem",
-          "spec": {
-            "element": {
-              "kind": "ElementReference",
-              "name": "panel-14"
-            },
-            "height": 8,
-            "width": 6,
-            "x": 18,
-            "y": 0
-          }
-        },
-        {
-          "kind": "GridLayoutItem",
-          "spec": {
-            "element": {
-              "kind": "ElementReference",
-              "name": "panel-10"
-            },
-            "height": 8,
-            "width": 18,
-            "x": 0,
-            "y": 8
-          }
-        },
-        {
-          "kind": "GridLayoutItem",
-          "spec": {
-            "element": {
-              "kind": "ElementReference",
-              "name": "panel-16"
-            },
-            "height": 8,
-            "width": 6,
-            "x": 18,
-            "y": 8
           }
         },
         {
@@ -1045,6 +1412,45 @@
             "element": {
               "kind": "ElementReference",
               "name": "panel-2"
+            },
+            "height": 8,
+            "width": 12,
+            "x": 12,
+            "y": 0
+          }
+        },
+        {
+          "kind": "GridLayoutItem",
+          "spec": {
+            "element": {
+              "kind": "ElementReference",
+              "name": "panel-3"
+            },
+            "height": 8,
+            "width": 12,
+            "x": 0,
+            "y": 8
+          }
+        },
+        {
+          "kind": "GridLayoutItem",
+          "spec": {
+            "element": {
+              "kind": "ElementReference",
+              "name": "panel-4"
+            },
+            "height": 8,
+            "width": 12,
+            "x": 12,
+            "y": 8
+          }
+        },
+        {
+          "kind": "GridLayoutItem",
+          "spec": {
+            "element": {
+              "kind": "ElementReference",
+              "name": "panel-5"
             },
             "height": 8,
             "width": 12,
@@ -1061,6 +1467,19 @@
             },
             "height": 8,
             "width": 12,
+            "x": 12,
+            "y": 16
+          }
+        },
+        {
+          "kind": "GridLayoutItem",
+          "spec": {
+            "element": {
+              "kind": "ElementReference",
+              "name": "panel-7"
+            },
+            "height": 8,
+            "width": 12,
             "x": 0,
             "y": 24
           }
@@ -1070,7 +1489,20 @@
           "spec": {
             "element": {
               "kind": "ElementReference",
-              "name": "panel-4"
+              "name": "panel-8"
+            },
+            "height": 8,
+            "width": 12,
+            "x": 12,
+            "y": 24
+          }
+        },
+        {
+          "kind": "GridLayoutItem",
+          "spec": {
+            "element": {
+              "kind": "ElementReference",
+              "name": "panel-9"
             },
             "height": 8,
             "width": 12,
@@ -1083,12 +1515,12 @@
           "spec": {
             "element": {
               "kind": "ElementReference",
-              "name": "panel-18"
+              "name": "panel-10"
             },
             "height": 8,
             "width": 12,
-            "x": 0,
-            "y": 40
+            "x": 12,
+            "y": 32
           }
         }
       ]
@@ -1097,9 +1529,11 @@
   "links": [],
   "liveNow": false,
   "preload": false,
-  "tags": [],
+  "tags": [
+    "vllm"
+  ],
   "timeSettings": {
-    "autoRefresh": "",
+    "autoRefresh": "5s",
     "autoRefreshIntervals": [
       "5s",
       "10s",
@@ -1118,79 +1552,6 @@
     "timezone": "browser",
     "to": "now"
   },
-  "title": "NVIDIA DCGM Exporter Dashboard -2",
-  "variables": [
-    {
-      "kind": "QueryVariable",
-      "spec": {
-        "allowCustomValue": true,
-        "current": {
-          "text": [
-            "10.42.1.23:9400"
-          ],
-          "value": [
-            "10.42.1.23:9400"
-          ]
-        },
-        "definition": "label_values(DCGM_FI_DEV_GPU_TEMP, instance)",
-        "hide": "dontHide",
-        "includeAll": false,
-        "multi": true,
-        "name": "instance",
-        "options": [],
-        "query": {
-          "datasource": {
-            "name": "prometheus"
-          },
-          "group": "prometheus",
-          "kind": "DataQuery",
-          "spec": {
-            "__legacyStringValue": "label_values(DCGM_FI_DEV_GPU_TEMP, instance)"
-          },
-          "version": "v0"
-        },
-        "refresh": "onDashboardLoad",
-        "regex": "",
-        "regexApplyTo": "value",
-        "skipUrlSync": false,
-        "sort": "disabled"
-      }
-    },
-    {
-      "kind": "QueryVariable",
-      "spec": {
-        "allowCustomValue": true,
-        "current": {
-          "text": [
-            "All"
-          ],
-          "value": [
-            "$__all"
-          ]
-        },
-        "definition": "label_values(gpu)",
-        "hide": "dontHide",
-        "includeAll": true,
-        "multi": true,
-        "name": "gpu",
-        "options": [],
-        "query": {
-          "datasource": {
-            "name": "prometheus"
-          },
-          "group": "prometheus",
-          "kind": "DataQuery",
-          "spec": {
-            "__legacyStringValue": "label_values(gpu)"
-          },
-          "version": "v0"
-        },
-        "refresh": "onDashboardLoad",
-        "regex": "",
-        "regexApplyTo": "value",
-        "skipUrlSync": false,
-        "sort": "alphabeticalAsc"
-      }
-    }
-  ]
+  "title": "vLLM Metrics",
+  "variables": []
 }
