@@ -23,10 +23,18 @@ helm upgrade --install kube-prometheus-stack prometheus-community/kube-prometheu
   -f kube-prometheus-stack-values.yaml
 ```
 
-### 2. Install DCGM Exporter (GPU metrics)
+### 2. Install DCGM Exporter (GPU metrics, via official Helm chart)
 
 ```bash
-kubectl apply -f dcgm-exporter.yaml
+helm repo add gpu-helm-charts https://nvidia.github.io/dcgm-exporter/helm-charts
+helm upgrade --install dcgm-exporter gpu-helm-charts/dcgm-exporter \
+  --namespace monitoring \
+  --set nodeSelector."node-role\.kubernetes\.io/gpu-node"="true" \
+  --set tolerations[0].key=gpu-node \
+  --set tolerations[0].operator=Equal \
+  --set tolerations[0].value="true" \
+  --set tolerations[0].effect=NoSchedule \
+  --set serviceMonitor.enabled=true
 ```
 
 ### 3. Install ServiceMonitors (Prometheus scrape configs)
@@ -61,7 +69,7 @@ echo "http://<control-plane-ip>:$GRAFANA_PORT"
 | Kubernetes / Views / Global | 15757 | grafana.com |
 
 vLLM metrics are scraped via `ServiceMonitor` targeting `vllm-service.alpha:8100/metrics`.  
-DCGM Exporter is auto-discovered via `prometheus.io/scrape` pod annotations on port 9400.  
+DCGM Exporter is scraped via the chart's built-in `ServiceMonitor` (enabled via `--set serviceMonitor.enabled=true`).  
 Envoy proxy metrics are scraped via `ServiceMonitor` targeting the auto-created Envoy service in `envoy-gateway-system` on port 19001 at `/stats/prometheus`.
 
 ## Prometheus Storage
