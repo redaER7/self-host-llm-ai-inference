@@ -26,3 +26,8 @@ spec:
               cpu: "1000m"
       envoyService:
         type: NodePort
+        ports:
+          - name: metrics
+            port: 19001
+            targetPort: 19001
+            protocol: TCP

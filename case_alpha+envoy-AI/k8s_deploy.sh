@@ -56,7 +56,7 @@ kubectl patch service "$ENVOY_SVC" -n envoy-gateway-system \
   --type=json \
   -p='[{"op":"replace","path":"/spec/ports/0/nodePort","value":30080}]'
 
-echo "=== 10. Deploy vLLM (Qwen2.5-7B) on GPU ==="
+echo "=== 10. Deploy vLLM (Qwen2.5-3B) on GPU ==="
 kubectl apply -f "${SCRIPT_DIR}/vllm-deployment.yaml"
 echo "Waiting for vLLM pod to be Running..."
 kubectl wait --timeout=15m -n alpha pod -l app=vllm --for=condition=Ready 2>/dev/null || true
@@ -85,7 +85,11 @@ helm upgrade --install kube-prometheus-stack prometheus-community/kube-prometheu
   -f "${SCRIPT_DIR}/../monitoring/kube-prometheus-stack-values.yaml"
 kubectl wait --timeout=3m -n monitoring pod -l app.kubernetes.io/instance=kube-prometheus-stack --for=condition=Ready 2>/dev/null || true
 
-echo "=== 17. DCGM Exporter (GPU metrics on GPU node) ==="
+echo "=== 17. ServiceMonitors (Prometheus scrape configs) ==="
+kubectl apply -f "${SCRIPT_DIR}/../monitoring/vllm-service-monitor.yaml"
+kubectl apply -f "${SCRIPT_DIR}/../monitoring/envoy-proxy-service-monitor.yaml"
+
+echo "=== 18. DCGM Exporter (GPU metrics on GPU node) ==="
 kubectl apply -f "${SCRIPT_DIR}/../monitoring/dcgm-exporter.yaml"
 kubectl wait --timeout=2m -n monitoring pod -l app=dcgm-exporter --for=condition=Ready 2>/dev/null || true
 
@@ -95,7 +99,7 @@ echo ""
 echo "Test inference:"
 echo "  curl -X POST https://llm.yacodata.com/v1/chat/completions \\"
 echo "    -H \"Content-Type: application/json\" \\"
-echo "    -d '{\"model\":\"Qwen/Qwen2.5-7B-Instruct\",\"messages\":[{\"role\":\"user\",\"content\":\"hello\"}],\"max_tokens\":100}'"
+echo "    -d '{\"model\":\"Qwen/Qwen2.5-3B-Instruct\",\"messages\":[{\"role\":\"user\",\"content\":\"hello\"}],\"max_tokens\":100}'"
 echo ""
 echo "Test NextChat:"
 echo "  open https://chat.yacodata.com/"

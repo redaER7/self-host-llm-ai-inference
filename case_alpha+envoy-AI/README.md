@@ -28,7 +28,7 @@ Browser ──https──→ llm.yacodata.com / chat.yacodata.com (443)
 | GPU worker | Trooper AI | K3s agent, `gpu-node` label + taint |
 | Envoy Gateway | Hetzner CP | Helm install with AI Gateway extensionManager |
 | AI Gateway Controller | Hetzner CP | Token metering, AIGatewayRoute routing |
-| vLLM | GPU node | `hostNetwork: true`, HF download at startup (7B ~15 GB) |
+| vLLM | GPU node | `hostNetwork: true`, HF download at startup (3B ~2 GB) |
 | NextChat | Hetzner CP | ClusterIP:3000, password protected via `CODE` env var |
 | TLS | cert-manager | Let's Encrypt DNS-01 via Cloudflare, SAN cert for both domains |
 | WireGuard | Hetzner ↔ GPU (native) | Data-plane tunnel, subnet 10.10.0.0/24 |
@@ -36,11 +36,11 @@ Browser ──https──→ llm.yacodata.com / chat.yacodata.com (443)
 
 ## Requirements
 
-### GPU (Trooper AI)
+### GPU
 
 | GPU | VRAM | Why |
 |-----|------|-----|
-| RTX 3090 / RTX 4090 / RTX 6000 Ada | 24–48 GB | Qwen 2.5-7B at BF16 (~14 GiB) + KV cache |
+| Any NVIDIA GPU | 4+ GB | Qwen 2.5-3B (~2 GB) fits even low-end GPUs |
 
 ### Hetzner Firewall
 
@@ -73,9 +73,9 @@ Browser ──https──→ llm.yacodata.com / chat.yacodata.com (443)
 | `envoy-ai-gateway/aigatewayroute.yaml` | AIGatewayRoute with token metering (no header match) |
 | `envoy-ai-gateway/cors-policy.yaml` | SecurityPolicy (CORS for NextChat origin) |
 | `envoy-ai-gateway/httproute-nextchat.yaml` | HTTPRoute for `chat.yacodata.com` → NextChat |
-| `frontend/nextchat/deployment.yaml` | NextChat with `CUSTOM_MODELS: Qwen/Qwen2.5-7B-Instruct` |
+| `frontend/nextchat/deployment.yaml` | NextChat with `CUSTOM_MODELS: Qwen/Qwen2.5-3B-Instruct` |
 | `frontend/nextchat/service.yaml` | NextChat ClusterIP:3000 |
-| `vllm-deployment.yaml` | vLLM Deployment + Service (Qwen2.5-7B-Instruct) |
+| `vllm-deployment.yaml` | vLLM Deployment + Service (Qwen2.5-3B-Instruct) |
 
 ## Quick Start
 
@@ -109,7 +109,7 @@ bash hetzner-cp-node-socat.sh
 
 ## Deployment Details
 
-The `k8s_deploy.sh` script runs 17 steps:
+The `k8s_deploy.sh` script runs 18 steps:
 
 ```
  1. Namespaces (alpha, frontend, monitoring, cert-manager, envoy-*)
@@ -121,14 +121,15 @@ The `k8s_deploy.sh` script runs 17 steps:
  7. GatewayClass + EnvoyProxy + Gateway
  8. TLS Certificate (wait for Ready)
  9. Patch proxy service → NodePort 30080
-10. vLLM deployment (Qwen2.5-7B, GPU node, prometheus annotations)
+10. vLLM deployment (Qwen2.5-3B, GPU node)
 11. Backend + AIServiceBackend
 12. AIGatewayRoute (token metering)
 13. CORS policy (SecurityPolicy on Gateway)
 14. NextChat (deployment + service + HTTPRoute)
 15. socat forwarder (443 → 30080)
 16. kube-prometheus-stack (Prometheus + Grafana + node_exporter + kube-state-metrics)
-17. DCGM Exporter (GPU metrics DaemonSet)
+17. ServiceMonitors (vLLM + Envoy proxy metrics scrape)
+18. DCGM Exporter (GPU metrics DaemonSet)
 ```
 
 ## Testing
@@ -137,7 +138,7 @@ The `k8s_deploy.sh` script runs 17 steps:
 # Inference via public domain
 curl -X POST https://llm.yacodata.com/v1/chat/completions \
   -H "Content-Type: application/json" \
-  -d '{"model":"Qwen/Qwen2.5-7B-Instruct","messages":[{"role":"user","content":"hello"}],"max_tokens":100}'
+  -d '{"model":"Qwen/Qwen2.5-3B-Instruct","messages":[{"role":"user","content":"hello"}],"max_tokens":100}'
 
 # NextChat (open in browser)
 open https://chat.yacodata.com/
@@ -146,14 +147,14 @@ open https://chat.yacodata.com/
 curl -k -X POST https://localhost:30080/v1/chat/completions \
   -H "Content-Type: application/json" \
   -H "Host: llm.yacodata.com" \
-  -d '{"model":"Qwen/Qwen2.5-7B-Instruct","messages":[{"role":"user","content":"hello"}],"max_tokens":100}'
+  -d '{"model":"Qwen/Qwen2.5-3B-Instruct","messages":[{"role":"user","content":"hello"}],"max_tokens":100}'
 ```
 
 ## Differences from case_alpha
 
 | Aspect | case_alpha | case_alpha+envoy-AI |
 |--------|------------|---------------------|
-| Model | Qwen 2.5 3B | **Qwen 2.5 7B** |
+| Model | Qwen 2.5 3B | **Qwen 2.5 3B** (same) |
 | Envoy Gateway values | Minimal (no extensions) | **extensionManager** → AI Gateway |
 | AI Gateway CRDs | ❌ | ✅ |
 | AI Gateway Controller | ❌ | ✅ |

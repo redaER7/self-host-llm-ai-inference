@@ -9,7 +9,7 @@ Shared monitoring stack for all cases: Prometheus + Grafana + node_exporter + DC
 | **Nodes** | node_exporter (DaemonSet) | CPU, RAM, disk, network |
 | **GPU** | dcgm-exporter (DaemonSet) | GPU util, memory, temp, power, PCIe |
 | **vLLM** | Built-in `/metrics` endpoint | TTFT, TPOT, tokens/sec, KV cache usage, queue depth |
-| **Envoy AI Gateway** | Envoy stats endpoint | Request counts, token metering, HTTP status codes |
+| **Envoy proxy** | Envoy stats endpoint (`/stats/prometheus`) | Request counts, latencies (P50/P95/P99), HTTP status codes, upstream cluster stats |
 | **K8s cluster** | kube-state-metrics | Pods, deployments, nodes, services |
 
 ## Installation
@@ -29,14 +29,22 @@ helm upgrade --install kube-prometheus-stack prometheus-community/kube-prometheu
 kubectl apply -f dcgm-exporter.yaml
 ```
 
-### 3. Verify
+### 3. Install ServiceMonitors (Prometheus scrape configs)
+
+```bash
+kubectl apply -f vllm-service-monitor.yaml
+kubectl apply -f envoy-proxy-service-monitor.yaml
+```
+
+### 4. Verify
 
 ```bash
 kubectl -n monitoring get pods
 kubectl -n kube-system get pods -l app=dcgm-exporter
+kubectl -n monitoring get servicemonitor
 ```
 
-### 4. Access Grafana
+### 5. Access Grafana
 
 ```bash
 GRAFANA_PORT=$(kubectl -n monitoring get svc kube-prometheus-stack-grafana -o jsonpath='{.spec.ports[0].nodePort}')
@@ -44,7 +52,7 @@ echo "http://<control-plane-ip>:$GRAFANA_PORT"
 # Default: admin / admin
 ```
 
-### 5. Import Dashboards
+### 6. Import Dashboards
 
 | Dashboard | Grafana ID | Source |
 |-----------|-----------|--------|
@@ -52,7 +60,9 @@ echo "http://<control-plane-ip>:$GRAFANA_PORT"
 | vLLM Official | — | [vLLM repo](https://github.com/vllm-project/vllm/tree/main/examples/production-grafana-dashboards) |
 | Kubernetes / Views / Global | 15757 | grafana.com |
 
-Prometheus is configured to auto-discover vLLM pods via the `prometheus.io/scrape: "true"` annotation. vLLM pods expose metrics on port 8000 at `/metrics`.
+vLLM metrics are scraped via `ServiceMonitor` targeting `vllm-service.alpha:8100/metrics`.  
+DCGM Exporter is auto-discovered via `prometheus.io/scrape` pod annotations on port 9400.  
+Envoy proxy metrics are scraped via `ServiceMonitor` targeting the auto-created Envoy service in `envoy-gateway-system` on port 19001 at `/stats/prometheus`.
 
 ## Prometheus Storage
 

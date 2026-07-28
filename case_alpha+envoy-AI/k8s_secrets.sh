@@ -2,7 +2,7 @@
 set -euo pipefail
 
 echo "=== Namespaces ==="
-for ns in alpha cert-manager envoy-gateway-system envoy-ai-gateway-system frontend; do
+for ns in alpha cert-manager envoy-gateway-system envoy-ai-gateway-system frontend monitoring; do
   kubectl create namespace "$ns" --dry-run=client -o yaml | kubectl apply -f -
 done
 
@@ -29,7 +29,7 @@ kubectl create secret generic hf-token \
 echo "[4/4] NextChat secret (password protection)"
 kubectl create secret generic nextchat-secret \
   --namespace frontend \
-  --from-literal=code="${CODE:?Set CODE}" \
+  --from-literal=code="${NEXTCHAT_CODE:?Set NEXTCHAT_CODE}" \
   --dry-run=client -o yaml | kubectl apply -f -
 
 echo ""
