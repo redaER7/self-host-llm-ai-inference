@@ -85,7 +85,12 @@ helm upgrade --install kube-prometheus-stack prometheus-community/kube-prometheu
   -f "${SCRIPT_DIR}/../monitoring/kube-prometheus-stack-values.yaml"
 kubectl wait --timeout=3m -n monitoring pod -l app.kubernetes.io/instance=kube-prometheus-stack --for=condition=Ready 2>/dev/null || true
 
-echo "=== 17. ServiceMonitors (Prometheus scrape configs) ==="
+echo "=== 17. Grafana dashboards (ConfigMaps with grafana_dashboard label) ==="
+kubectl apply -f "${SCRIPT_DIR}/../monitoring/vllm-dashboard-configmap.yaml"
+kubectl apply -f "${SCRIPT_DIR}/../monitoring/envoy-gateway-dashboard-configmap.yaml"
+kubectl apply -f "${SCRIPT_DIR}/../monitoring/dcgm-nvidia-dashboard-configmap.yaml"
+
+echo "=== 18. ServiceMonitors (Prometheus scrape configs) ==="
 kubectl apply -f "${SCRIPT_DIR}/../monitoring/vllm-service-monitor.yaml"
 kubectl apply -f "${SCRIPT_DIR}/../monitoring/envoy-proxy-service-monitor.yaml"
 
