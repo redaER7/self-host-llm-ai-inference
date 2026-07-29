@@ -56,7 +56,7 @@ kubectl patch service "$ENVOY_SVC" -n envoy-gateway-system \
   --type=json \
   -p='[{"op":"replace","path":"/spec/ports/0/nodePort","value":30080}]'
 
-echo "=== 10. Deploy vLLM (Qwen2.5-3B) on GPU ==="
+echo "=== 10. Deploy vLLM (DeepSeek-R1-Distill-Qwen-14B AWQ) on GPU ==="
 kubectl apply -f "${SCRIPT_DIR}/vllm-deployment.yaml"
 echo "Waiting for vLLM pod to be Running..."
 kubectl wait --timeout=15m -n alpha pod -l app=vllm --for=condition=Ready 2>/dev/null || true
@@ -109,7 +109,7 @@ echo ""
 echo "Test inference:"
 echo "  curl -X POST https://llm.yacodata.com/v1/chat/completions \\"
 echo "    -H \"Content-Type: application/json\" \\"
-echo "    -d '{\"model\":\"Qwen/Qwen2.5-3B-Instruct\",\"messages\":[{\"role\":\"user\",\"content\":\"hello\"}],\"max_tokens\":100}'"
+echo "    -d '{\"model\":\"casperhansen/deepseek-r1-distill-qwen-14b-awq\",\"messages\":[{\"role\":\"user\",\"content\":\"hello\"}],\"max_tokens\":100}'"
 echo ""
 echo "Test NextChat:"
 echo "  open https://chat.yacodata.com/"

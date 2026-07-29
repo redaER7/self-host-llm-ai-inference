@@ -49,17 +49,21 @@ spec:
             - vllm.entrypoints.openai.api_server
           args:
             - --model
-            - Qwen/Qwen2.5-3B-Instruct
+            - casperhansen/deepseek-r1-distill-qwen-14b-awq
             - --port
             - "8100"
             - --host
             - "0.0.0.0"
             - --dtype
             - auto
+            - --quantization
+            - awq
             - --max-model-len
-            - "16384"
+            - "8192"
             - --gpu-memory-utilization
-            - "0.92"
+            - "0.90"
+            - --max-num-seqs
+            - "8"
             - --download-dir
             - /root/.cache/huggingface
             - --enable-prefix-caching
@@ -83,7 +87,7 @@ spec:
               memory: "20Gi"
             requests:
               nvidia.com/gpu: "1"
-              memory: "8Gi"
+              memory: "10Gi"
           volumeMounts:
             - name: dshm
               mountPath: /dev/shm

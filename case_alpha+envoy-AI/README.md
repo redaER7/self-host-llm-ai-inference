@@ -73,9 +73,9 @@ Browser ──https──→ llm.yacodata.com / chat.yacodata.com (443)
 | `envoy-ai-gateway/aigatewayroute.yaml` | AIGatewayRoute with token metering (no header match) |
 | `envoy-ai-gateway/cors-policy.yaml` | SecurityPolicy (CORS for NextChat origin) |
 | `envoy-ai-gateway/httproute-nextchat.yaml` | HTTPRoute for `chat.yacodata.com` → NextChat |
-| `frontend/nextchat/deployment.yaml` | NextChat with `CUSTOM_MODELS: Qwen/Qwen2.5-3B-Instruct` |
+| `frontend/nextchat/deployment.yaml` | NextChat with `CUSTOM_MODELS: casperhansen/deepseek-r1-distill-qwen-14b-awq` |
 | `frontend/nextchat/service.yaml` | NextChat ClusterIP:3000 |
-| `vllm-deployment.yaml` | vLLM Deployment + Service (Qwen2.5-3B-Instruct) |
+| `vllm-deployment.yaml` | vLLM Deployment + Service (DeepSeek-R1-Distill-Qwen-14B AWQ) |
 
 ## Quick Start
 
@@ -121,7 +121,7 @@ The `k8s_deploy.sh` script runs 18 steps:
  7. GatewayClass + EnvoyProxy + Gateway
  8. TLS Certificate (wait for Ready)
  9. Patch proxy service → NodePort 30080
-10. vLLM deployment (Qwen2.5-3B, GPU node)
+10. vLLM deployment (DeepSeek-R1-Distill-Qwen-14B, GPU node)
 11. Backend + AIServiceBackend
 12. AIGatewayRoute (token metering)
 13. CORS policy (SecurityPolicy on Gateway)
@@ -138,7 +138,7 @@ The `k8s_deploy.sh` script runs 18 steps:
 # Inference via public domain
 curl -X POST https://llm.yacodata.com/v1/chat/completions \
   -H "Content-Type: application/json" \
-  -d '{"model":"Qwen/Qwen2.5-3B-Instruct","messages":[{"role":"user","content":"hello"}],"max_tokens":100}'
+  -d '{"model":"casperhansen/deepseek-r1-distill-qwen-14b-awq","messages":[{"role":"user","content":"hello"}],"max_tokens":100}'
 
 # NextChat (open in browser)
 open https://chat.yacodata.com/
@@ -147,7 +147,7 @@ open https://chat.yacodata.com/
 curl -k -X POST https://localhost:30080/v1/chat/completions \
   -H "Content-Type: application/json" \
   -H "Host: llm.yacodata.com" \
-  -d '{"model":"Qwen/Qwen2.5-3B-Instruct","messages":[{"role":"user","content":"hello"}],"max_tokens":100}'
+  -d '{"model":"casperhansen/deepseek-r1-distill-qwen-14b-awq","messages":[{"role":"user","content":"hello"}],"max_tokens":100}'
 ```
 
 ## Differences from case_alpha
