@@ -3,8 +3,9 @@ import asyncio, aiohttp, json, random, time, statistics
 MODEL = "casperhansen/deepseek-r1-distill-qwen-14b-awq"
 URL = "https://llm.yacodata.com/v1/chat/completions"
 CONCURRENCY = 10
-MAX_TOKENS_MIN = 400
-MAX_TOKENS_MAX = 3000
+TTFT_COUNT = 5
+MAX_TOKENS_MIN = 300
+MAX_TOKENS_MAX = 2000
 
 PROMPTS = [
     "Compute the Fourier transform of f(x)=e^{-⟨Ax,x⟩} for A∈C^{n×n}, Re A positive definite.",
@@ -28,6 +29,18 @@ PROMPTS = [
     "Let f(x)=∑_{n=1}^{∞} sin(nx)/n². Determine if f is continuous, differentiable, and compute its Fourier series.",
     "Prove using the intermediate value property that every continuous function on a closed bounded interval attains its maximum and minimum.",
 ]
+
+def percentile(data, p):
+    if not data:
+        return 0
+    s = sorted(data)
+    k = max(0, min(len(s) - 1, int(len(s) * p / 100)))
+    return s[k]
+
+def fmt_pct(data):
+    if not data:
+        return "  —"
+    return f"min {min(data):.1f}s  p50 {percentile(data, 50):.1f}s  p95 {percentile(data, 95):.1f}s  max {max(data):.1f}s"
 
 async def send_request(session, idx, payload):
     start = time.monotonic()
@@ -58,15 +71,70 @@ async def send_request(session, idx, payload):
             "error": str(e),
         }
 
-async def main():
-    print(f"Benchmark: {CONCURRENCY} concurrent requests to {URL}")
-    print(f"Model: {MODEL}")
-    print(f"max_tokens: {MAX_TOKENS_MIN}–{MAX_TOKENS_MAX} (random per request)")
-    print()
+async def send_streaming_ttft(session, idx, payload):
+    start = time.monotonic()
+    try:
+        p = {**payload, "stream": True}
+        async with session.post(URL, json=p) as resp:
+            ttft = None
+            while True:
+                line = await resp.content.readline()
+                if not line:
+                    break
+                line = line.strip()
+                if line.startswith(b"data: [DONE]"):
+                    break
+                if line.startswith(b"data: "):
+                    if ttft is None:
+                        ttft = time.monotonic() - start
+                    break
+            return {
+                "idx": idx,
+                "ttft": ttft,
+                "status": resp.status,
+                "error": None,
+            }
+    except Exception as e:
+        return {
+            "idx": idx,
+            "ttft": None,
+            "status": 0,
+            "error": str(e),
+        }
 
-    timeout = aiohttp.ClientTimeout(total=300)
-    connector = aiohttp.TCPConnector(limit=CONCURRENCY)
+async def main():
+    timeout = aiohttp.ClientTimeout(total=600)
+    connector = aiohttp.TCPConnector(limit=max(CONCURRENCY, TTFT_COUNT))
+
     async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
+        print(f"Benchmark: {CONCURRENCY} concurrent requests to {URL}")
+        print(f"Model: {MODEL}")
+        print(f"TTFT probes: {TTFT_COUNT}  |  max_tokens: {MAX_TOKENS_MIN}–{MAX_TOKENS_MAX}")
+        print()
+
+        print("─ TTFT (streaming) ─────────────────────────────────────")
+        ttft_tasks = []
+        for i in range(TTFT_COUNT):
+            payload = {
+                "model": MODEL,
+                "messages": [{"role": "user", "content": PROMPTS[i % len(PROMPTS)]}],
+                "max_tokens": random.randint(MAX_TOKENS_MIN, MAX_TOKENS_MAX),
+            }
+            ttft_tasks.append(send_streaming_ttft(session, i + 1, payload))
+
+        ttft_results = await asyncio.gather(*ttft_tasks)
+        ttft_vals = []
+        for r in ttft_results:
+            s = f"{r['ttft']:.2f}s" if r["ttft"] and r["status"] == 200 else f"ERR({r.get('error', r['status'])})"
+            print(f"  #{r['idx']:>2}  TTFT = {s}")
+            if r["ttft"] and r["status"] == 200:
+                ttft_vals.append(r["ttft"])
+
+        print()
+        print(f"  TTFT: {fmt_pct(ttft_vals)}")
+        print()
+
+        print("─ Throughput (non-streaming) ───────────────────────────")
         tasks = []
         for i in range(CONCURRENCY):
             payload = {
@@ -78,41 +146,41 @@ async def main():
 
         results = await asyncio.gather(*tasks)
 
-    header = f"{'#':>2}  {'max_tok':>7}  {'duration':>8}  {'tokens':>6}  {'tok/s':>8}  {'status':>6}"
-    sep = "─" * len(header)
-    print(header)
-    print(sep)
+        header = f"{'#':>2}  {'max_tok':>7}  {'duration':>8}  {'tokens':>6}  {'tok/s':>8}  {'status':>6}"
+        sep = "─" * len(header)
+        print(header)
+        print(sep)
 
-    durations = []
-    tok_rates = []
-    tok_counts = []
-    errors = 0
+        durations = []
+        tok_rates = []
+        tok_counts = []
+        errors = 0
 
-    for r in sorted(results, key=lambda x: x["idx"]):
-        status_str = f"{r['status']}" if r["status"] == 200 else f"ERR({r['error']})"
-        print(f"{r['idx']:>2}  {r['max_tokens']:>7}  {r['duration']:>8.1f}s  {r['tokens']:>6}  {r['tok_s']:>8.1f}  {status_str:>6}")
-        if r["status"] == 200:
-            durations.append(r["duration"])
-            tok_rates.append(r["tok_s"])
-            tok_counts.append(r["tokens"])
-        else:
-            errors += 1
+        for r in sorted(results, key=lambda x: x["idx"]):
+            status_str = f"{r['status']}" if r["status"] == 200 else f"ERR({r['error']})"
+            print(f"{r['idx']:>2}  {r['max_tokens']:>7}  {r['duration']:>8.1f}s  {r['tokens']:>6}  {r['tok_s']:>8.1f}  {status_str:>6}")
+            if r["status"] == 200:
+                durations.append(r["duration"])
+                tok_rates.append(r["tok_s"])
+                tok_counts.append(r["tokens"])
+            else:
+                errors += 1
 
-    print()
-    print("Summary:")
-    print(f"  {CONCURRENCY - errors}/{CONCURRENCY} success ({100 * (CONCURRENCY - errors) / CONCURRENCY:.0f}%), {errors} errors")
+        print()
+        print("─ Summary ──────────────────────────────────────────────")
+        print(f"  Success:  {CONCURRENCY - errors}/{CONCURRENCY}  ({100 * (CONCURRENCY - errors) / CONCURRENCY:.0f}%)  |  {errors} errors")
 
-    if durations:
-        success_count = len(durations)
-        total_tokens = sum(tok_counts)
-        total_time = max(durations)
-        throughput_req = success_count / total_time
-        throughput_tok = total_tokens / total_time
+        if durations:
+            success_count = len(durations)
+            total_tokens = sum(tok_counts)
+            total_time = max(durations)
+            throughput_req = success_count / total_time
+            throughput_tok = total_tokens / total_time
 
-        print(f"  Throughput:  {throughput_req:.1f} req/s  |  {throughput_tok:.0f} tok/s")
-        print(f"  Latency:     min {min(durations):.1f}s  p50 {statistics.median(durations):.1f}s  p95 {sorted(durations)[-max(1, int(success_count*0.05))]:.1f}s  max {max(durations):.1f}s")
-        print(f"  Tokens/req:  min {min(tok_counts)}  p50 {statistics.median(tok_counts):.0f}  p95 {sorted(tok_counts)[-max(1, int(success_count*0.05))]:.0f}  max {max(tok_counts)}")
-        print(f"  Tok/s:       min {min(tok_rates):.1f}  p50 {statistics.median(tok_rates):.1f}  p95 {sorted(tok_rates)[-max(1, int(success_count*0.05))]:.1f}  max {max(tok_rates):.1f}")
+            print(f"  Throughput:  {throughput_req:.1f} req/s  |  {throughput_tok:.0f} tok/s")
+            print(f"  Latency:     {fmt_pct(durations)}")
+            print(f"  Tokens/req:  min {min(tok_counts)}  p50 {percentile(tok_counts, 50):.0f}  p95 {percentile(tok_counts, 95):.0f}  max {max(tok_counts)}")
+            print(f"  Tok/s:       min {min(tok_rates):.1f}  p50 {percentile(tok_rates, 50):.1f}  p95 {percentile(tok_rates, 95):.1f}  max {max(tok_rates):.1f}")
 
 if __name__ == "__main__":
     asyncio.run(main())
