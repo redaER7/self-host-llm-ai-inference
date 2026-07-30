@@ -1,9 +1,0 @@
-apiVersion: serving.kserve.io/v1alpha1
-kind: LLMInferenceServiceConfig
-metadata:
-  name: llm-inference-service-config-router
-  namespace: beta
-spec:
-  router:
-    route: {}
-    gateway: {}

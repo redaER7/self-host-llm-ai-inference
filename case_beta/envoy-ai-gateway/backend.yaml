@@ -6,7 +6,7 @@ metadata:
 spec:
   endpoints:
     - fqdn:
-        hostname: deepseek-14b-inference-pool.beta.svc.cluster.local
+        hostname: deepseek-14b-kserve-workload-svc.beta.svc.cluster.local
         port: 8000
 ---
 apiVersion: aigateway.envoyproxy.io/v1beta1
