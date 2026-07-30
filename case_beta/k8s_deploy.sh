@@ -17,12 +17,10 @@ helm upgrade --install cert-manager jetstack/cert-manager \
   --set crds.enabled=true
 
 echo "Creating TLS certificate (llm.yacodata.com)"
-#kubectl apply -f "${SCRIPT_DIR}/envoy-ai-gateway/certificate.yaml"
-#kubectl wait --timeout=5m -n envoy-ai-gateway-system certificate/envoy-tls-cert --for=condition=Ready
+kubectl apply -f "${SCRIPT_DIR}/envoy-ai-gateway/certificate.yaml"
+kubectl wait --timeout=5m -n envoy-ai-gateway-system certificate/envoy-tls-cert --for=condition=Ready
 
-echo "Creating TLS certificate (chat.yacodata.com)"
-#kubectl apply -f "${SCRIPT_DIR}/../frontend/nextchat/certificate.yaml"
-#kubectl wait --timeout=5m -n frontend certificate/frontend-tls-cert --for=condition=Ready
+# Note: chat-tls-cert is also created by certificate.yaml above (same file)
 
 echo "=== 3. AI Gateway CRDs ==="
 helm upgrade -i aieg-crd oci://docker.io/envoyproxy/ai-gateway-crds-helm \
@@ -84,6 +82,14 @@ echo "=== 9. Re-apply Gateways (after KServe CRDs) ==="
 kubectl apply -f "${SCRIPT_DIR}/envoy-ai-gateway/gateway.yaml"
 kubectl apply -f "${SCRIPT_DIR}/envoy-ai-gateway/kserve-gateway.yaml"
 
+echo "=== 9a. Patch ai-gateway proxy service → NodePort 30080 ==="
+ENVOY_SVC=$(kubectl get svc -n envoy-gateway-system \
+  -l gateway.envoyproxy.io/owning-gateway-namespace=envoy-ai-gateway-system,gateway.envoyproxy.io/owning-gateway-name=ai-gateway \
+  -o jsonpath='{.items[0].metadata.name}')
+kubectl patch service "$ENVOY_SVC" -n envoy-gateway-system \
+  --type=json \
+  -p='[{"op":"replace","path":"/spec/ports/0/nodePort","value":30080}]'
+
 echo "=== 10. ServiceMonitors (Prometheus scrape configs) ==="
 kubectl apply -f "${SCRIPT_DIR}/../monitoring/vllm-service-monitor.yaml"
 kubectl apply -f "${SCRIPT_DIR}/../monitoring/envoy-proxy-service-monitor.yaml"
@@ -116,6 +122,9 @@ kubectl apply -f "${SCRIPT_DIR}/envoy-ai-gateway/cors-policy.yaml"
 echo "=== 18. NextChat frontend ==="
 kubectl create namespace frontend --dry-run=client -o yaml | kubectl apply -f -
 kubectl apply -f "${SCRIPT_DIR}/../frontend/nextchat/"
+
+echo "=== 19. NextChat HTTPRoute (pointing to ai-gateway) ==="
+kubectl apply -f "${SCRIPT_DIR}/envoy-ai-gateway/httproute-nextchat.yaml"
 
 echo ""
 echo "All resources deployed."
