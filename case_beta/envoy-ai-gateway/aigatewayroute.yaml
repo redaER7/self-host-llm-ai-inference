@@ -1,7 +1,7 @@
 apiVersion: aigateway.envoyproxy.io/v1beta1
 kind: AIGatewayRoute
 metadata:
-  name: deepseek-route
+  name: llm-server-route
   namespace: beta
 spec:
   hostnames:
@@ -16,9 +16,9 @@ spec:
         - headers:
             - type: Exact
               name: x-ai-eg-model
-              value: casperhansen/deepseek-r1-distill-qwen-14b-awq
+              value: Qwen/Qwen2.5-32B-Instruct-AWQ
       backendRefs:
-        - name: deepseek-backend
+        - name: llm-server-backend
 
   llmRequestCosts:
     - metadataKey: llm_input_token

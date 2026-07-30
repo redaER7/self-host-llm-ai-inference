@@ -1,6 +1,6 @@
 # Case β (beta) — Single Model with Envoy AI Gateway + KServe + llm-d + EPP
 
-Envoy AI Gateway → KServe LLMInferenceService → llm-d (EPP scheduler) → vLLM (DeepSeek-R1-Distill-Qwen-14B AWQ). Control plane on Hetzner CX33, GPU worker on Trooper AI (RTX 4090). Cross-node pod networking via Flannel VXLAN over WireGuard.
+Envoy AI Gateway → KServe LLMInferenceService → llm-d (EPP scheduler) → vLLM (Qwen 2.5 32B Instruct AWQ). Control plane on Hetzner CX33, GPU worker on Trooper AI (RTX 3090). Cross-node pod networking via Flannel VXLAN over WireGuard.
 
 ## Architecture
 
@@ -18,10 +18,10 @@ Client → https://llm.yacodata.com:443
            ├── Token metering (InputToken / OutputToken / TotalToken)
            │
            ▼
-         AIServiceBackend "deepseek-backend"
+          AIServiceBackend "llm-server-backend"
            │
            ▼
-         Backend → InferencePool "deepseek-14b-inference-pool"
+          Backend → InferencePool "llm-server-inference-pool"
            │         (gateway-api-inference-extension)
            ▼
          KServe internal gateway (kserve namespace, ClusterIP :80)
@@ -33,12 +33,12 @@ Client → https://llm.yacodata.com:443
            └── max-score-picker
            │
            ▼
-         vLLM pod (GPU node, hostNetwork, 10.10.0.2:8000)
-           ├── model: casperhansen/deepseek-r1-distill-qwen-14b-awq
-           ├── quantization: awq
-           ├── max-model-len: 8192
-           ├── max-num-seqs: 8
-           └── gpu-memory-utilization: 0.90
+          vLLM pod (GPU node, hostNetwork, 10.10.0.2:8000)
+            ├── model: Qwen/Qwen2.5-32B-Instruct-AWQ
+            ├── quantization: awq
+            ├── max-model-len: 8192
+            ├── max-num-seqs: 8
+            └── gpu-memory-utilization: 0.90
 ```
 
 The AI Gateway proxy (Envoy), KServe controller, and llm-d (EPP scheduler) run on the **control-plane node** (Hetzner). The vLLM pod runs on the **GPU node** (Trooper AI) with `hostNetwork: true`, binding directly to `10.10.0.2:8000`. Cross-node traffic flows over Flannel VXLAN (`UDP 8472`) through a WireGuard tunnel (`10.10.0.0/24`).
@@ -78,7 +78,7 @@ Same K3s setup as alpha — see [case_alpha/README.md](../case_alpha/README.md#r
   
 | GPU | VRAM | Why |
 |-----|------|-----|
-| **RTX 4090** | 24 GB | Fits DeepSeek-R1-Distill-Qwen-14B AWQ (~9.4 GiB weights) with room for KV cache |
+| **RTX 3090** | 24 GB | Fits Qwen 2.5 32B AWQ (~16 GiB weights) tight on KV cache — reduce max_model_len if needed |
 
 ### Model Weights
 
@@ -86,12 +86,12 @@ Weights download from HuggingFace on first pod startup. The model-cache volume p
 
 | Property | Value |
 |----------|-------|
-| Model | casperhansen/deepseek-r1-distill-qwen-14b-awq |
+| Model | Qwen/Qwen2.5-32B-Instruct-AWQ |
 | Quantization | AWQ (INT4) |
 | Strategy | HF download at startup |
-| Cold start | ~3-4 min (first time), ~10 s (cached) |
-| Download size | ~8.8 GB |
-| VRAM usage | ~9.4 GiB weights + ~10 GiB KV cache (at 8192 ctx, batch=8) |
+| Cold start | ~5-6 min (first time), ~10 s (cached) |
+| Download size | ~20 GB |
+| VRAM usage | ~16 GiB weights + ~6 GiB KV cache (at 8192 ctx, batch=8) |
 
 ### Software Stack
 
@@ -123,7 +123,7 @@ Weights download from HuggingFace on first pod startup. The model-cache volume p
 12. **Create secrets** — registry credentials and HF token
 13. **Deploy LLMInferenceServiceConfig + LLMInferenceService** — model + workload configs
 14. **Deploy Backend + AIServiceBackend** — Backend points to InferencePool created by LLMInferenceService
-15. **Apply AIGatewayRoute** — route with header match `x-ai-eg-model: casperhansen/deepseek-r1-distill-qwen-14b-awq`
+15. **Apply AIGatewayRoute** — route with header match `x-ai-eg-model: Qwen/Qwen2.5-32B-Instruct-AWQ`
 16. **Apply CORS policy** — allow NextChat origin to call Envoy Gateway
 17. **Set DNS A record** — llm.yacodata.com → Hetzner CP public IP
 18. **Deploy NextChat** — frontend UI on CP node (see [frontend/nextchat](../frontend/nextchat))
@@ -368,7 +368,7 @@ kubectl apply -f kserve/llm-inferenceservice.yaml
 
 Wait for the vLLM pod to be ready (first start downloads ~8.8 GB weights):
 ```bash
-kubectl wait --timeout=10m -n beta pod -l serving.kserve.io/inferenceservice=deepseek-14b --for=condition=Ready
+kubectl wait --timeout=10m -n beta pod -l serving.kserve.io/inferenceservice=llm-server --for=condition=Ready
 ```
 
 ### 13. Deploy Backend + AIServiceBackend
@@ -379,7 +379,7 @@ kubectl apply -f envoy-ai-gateway/backend.yaml
 
 ### 14. Apply AIGatewayRoute
 
-Routes requests with header `x-ai-eg-model: casperhansen/deepseek-r1-distill-qwen-14b-awq` to the AIServiceBackend:
+Routes requests with header `x-ai-eg-model: Qwen/Qwen2.5-32B-Instruct-AWQ` to the AIServiceBackend:
 
 ```bash
 kubectl apply -f envoy-ai-gateway/aigatewayroute.yaml
@@ -427,16 +427,16 @@ kubectl apply -f ../frontend/nextchat/
 
 Access at `https://chat.yacodata.com` and configure:
 - **Endpoint**: `https://llm.yacodata.com/v1`
-- **Model**: `casperhansen/deepseek-r1-distill-qwen-14b-awq`
+- **Model**: `Qwen/Qwen2.5-32B-Instruct-AWQ`
 
 ### 21. Test
 
 ```bash
 curl -X POST https://llm.yacodata.com/v1/chat/completions \
   -H "Content-Type: application/json" \
-  -H "x-ai-eg-model: casperhansen/deepseek-r1-distill-qwen-14b-awq" \
+  -H "x-ai-eg-model: Qwen/Qwen2.5-32B-Instruct-AWQ" \
   -d '{
-    "model": "casperhansen/deepseek-r1-distill-qwen-14b-awq",
+    "model": "Qwen/Qwen2.5-32B-Instruct-AWQ",
     "messages": [{"role": "user", "content": "Write a hello world in Python"}],
     "max_tokens": 100
   }'

@@ -7,12 +7,12 @@ Run **two vLLM pods on one GPU** via NVIDIA time-slicing + MPS memory limits.
 ```
                           Envoy AI Gateway Proxy (CP)
                          /                           \
-          x-ai-eg-model: deepseek-14b      x-ai-eg-model: Qwen-3B
+           x-ai-eg-model: Qwen/Qwen2.5-32B-Instruct-AWQ      x-ai-eg-model: Qwen-3B
                         /                               \
               InferencePool A                      InferencePool B
                     |                                    |
          ┌──────────▼──────────┐             ┌──────────▼──────────┐
-         │  deepseek-14b pod   │             │  qwen-3b pod        │
+          │  llm-server pod     │             │  qwen-3b pod        │
          │  CUDA_MPS_MEM_LIMIT │             │  CUDA_MPS_MEM_LIMIT │
          │  = 14 GiB          │             │  = 4 GiB            │
          └──────────┬──────────┘             └──────────┬──────────┘
@@ -66,7 +66,7 @@ Each vLLM pod sets a hard GPU memory cap via CUDA MPS:
 ```yaml
 env:
   - name: CUDA_MPS_PINNED_DEVICE_MEMORY_LIMIT
-    value: "14000000000"  # 14 GiB for DeepSeek
+    value: "14000000000"  # 14 GiB for llm-server
 ```
 
 ```yaml
@@ -242,7 +242,7 @@ spec:
 apiVersion: aigateway.envoyproxy.io/v1beta1
 kind: AIGatewayRoute
 metadata:
-  name: deepseek-route
+  name: llm-server-route
   namespace: beta
 spec:
   hostnames:
@@ -257,9 +257,9 @@ spec:
         - headers:
             - type: Exact
               name: x-ai-eg-model
-              value: casperhansen/deepseek-r1-distill-qwen-14b-awq
+              value: Qwen/Qwen2.5-32B-Instruct-AWQ
       backendRefs:
-        - name: deepseek-backend
+        - name: llm-server-backend
     - matches:
         - headers:
             - type: Exact
@@ -282,7 +282,7 @@ spec:
 
 ```yaml
 - name: CUSTOM_MODELS
-  value: "casperhansen/deepseek-r1-distill-qwen-14b-awq+max_tokens=16384,Qwen/Qwen2.5-3B-Instruct"
+  value: "Qwen/Qwen2.5-32B-Instruct-AWQ+max_tokens=8192,Qwen/Qwen2.5-3B-Instruct"
 ```
 
 ## Deploy Script Steps
@@ -313,8 +313,8 @@ kubectl get pods -n beta
 # Test DeepSeek
 curl -X POST https://llm.yacodata.com/v1/chat/completions \
   -H "Content-Type: application/json" \
-  -H "x-ai-eg-model: casperhansen/deepseek-r1-distill-qwen-14b-awq" \
-  -d '{"model":"casperhansen/deepseek-r1-distill-qwen-14b-awq","messages":[{"role":"user","content":"hello"}],"max_tokens":100}'
+  -H "x-ai-eg-model: Qwen/Qwen2.5-32B-Instruct-AWQ" \
+  -d '{"model":"Qwen/Qwen2.5-32B-Instruct-AWQ","messages":[{"role":"user","content":"hello"}],"max_tokens":100}'
 
 # Test Qwen
 curl -X POST https://llm.yacodata.com/v1/chat/completions \
@@ -323,7 +323,7 @@ curl -X POST https://llm.yacodata.com/v1/chat/completions \
   -d '{"model":"Qwen/Qwen2.5-3B-Instruct","messages":[{"role":"user","content":"hello"}],"max_tokens":100}'
 
 # Check GPU memory split
-kubectl exec -n beta deploy/deepseek-14b -- nvidia-smi
+kubectl exec -n beta deploy/llm-server -- nvidia-smi
 kubectl exec -n beta deploy/qwen-3b -- nvidia-smi
 ```
 

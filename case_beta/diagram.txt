@@ -52,23 +52,23 @@
 │                                                                              │
 │  ┌────────────────────────────────────────────────────────────────────────┐ │
 │  │  VLLM POD (hostNetwork: true, binds 10.10.0.2:8000)                   │ │
-│  │  - Managed by KServe LLMInferenceService "deepseek-14b"               │ │
+ │  │  - Managed by KServe LLMInferenceService "llm-server"                │ │
 │  │  - Init container downloads model (cached via emptyDir)               │ │
 │  │  - vLLM args:                                                         │ │
-│  │    --model casperhansen/deepseek-r1-distill-qwen-14b-awq              │ │
+ │  │    --model Qwen/Qwen2.5-32B-Instruct-AWQ                             │ │
 │  │    --quantization awq                                                 │ │
 │  │    --tensor-parallel-size 1                                           │ │
 │  │    --max-model-len 8192                                               │ │
 │  │    --max-num-seqs 8                                                   │ │
 │  │    --gpu-memory-utilization 0.90                                      │ │
 │  │    --enable-prefix-caching                                            │ │
-│  │  - Service: deepseek-14b-kserve-workload-svc (ClusterIP :8000)       │ │
+ │  │  - Service: llm-server-kserve-workload-svc (ClusterIP :8000)         │ │
 │  └────────────────────────────────────────────────────────────────────────┘ │
 │                                                                              │
 │  GPU Resources:                                                             │
-│  ├── Weights (AWQ INT4): ~9.4 GiB                                          │
-│  ├── KV Cache: ~10 GiB (max ~55K tokens, ~6 concurrent at 8K ctx)          │
-│  └── Total VRAM usage: ~19-20 GiB (within 24 GB limit)                     │
+ │  ├── Weights (AWQ INT4): ~16 GiB                                           │
+ │  ├── KV Cache: ~6 GiB (max ~32K tokens, ~6 concurrent at 8K ctx)           │
+ │  └── Total VRAM usage: ~22-23 GiB (within 24 GB limit)                     │
 │                                                                              │
-│  Model Cache: /mnt/huggingface/models (emptyDir) → 8.8 GB download          │
+ │  Model Cache: /mnt/huggingface/models (emptyDir) → ~20 GB download          │
 └──────────────────────────────────────────────────────────────────────────────┘

@@ -1,13 +1,13 @@
 apiVersion: gateway.envoyproxy.io/v1alpha1
 kind: BackendTrafficPolicy
 metadata:
-  name: deepseek-rate-limit
+  name: llm-server-rate-limit
   namespace: beta
 spec:
   targetRefs:
     - group: gateway.networking.k8s.io
       kind: HTTPRoute
-      name: deepseek-14b-kserve-route
+      name: llm-server-kserve-route
   rateLimit:
     type: Global
     global:
@@ -15,14 +15,14 @@ spec:
         - clientSelectors:
             - headers:
                 - name: x-ai-eg-model
-                  value: casperhansen/deepseek-r1-distill-qwen-14b-awq
+                  value: Qwen/Qwen2.5-32B-Instruct-AWQ
           limit:
             requests: 30
             unit: Minute
         - clientSelectors:
             - headers:
                 - name: x-ai-eg-model
-                  value: casperhansen/deepseek-r1-distill-qwen-14b-awq
+                  value: Qwen/Qwen2.5-32B-Instruct-AWQ
           limit:
             requests: 5000
             unit: Minute

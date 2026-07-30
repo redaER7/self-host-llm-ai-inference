@@ -1,4 +1,4 @@
-MODEL="casperhansen/deepseek-r1-distill-qwen-14b-awq"
+MODEL="Qwen/Qwen2.5-32B-Instruct-AWQ"
 DOMAIN="llm.yacodata.com"
 
 echo "=== Test 1: Direct HTTPS via Envoy AI Gateway ==="
@@ -45,7 +45,7 @@ curl -X POST "https://${DOMAIN}/v1/chat/completions" \
 echo ""
 echo "=== Test 5: Direct vLLM (in-cluster via kubectl exec) ==="
 echo "# kubectl run -n beta curl-test --image=curlimages/curl --rm -it --restart=Never --"
-echo "#   -s http://deepseek-14b-kserve-workload-svc.beta.svc.cluster.local:8000/v1/chat/completions"
+echo "#   -s http://llm-server-kserve-workload-svc.beta.svc.cluster.local:8000/v1/chat/completions"
 echo "#   -H \"Content-Type: application/json\""
 echo "#   -d '{\"model\":\"${MODEL}\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"max_tokens\":10}'"
 
