@@ -7,3 +7,4 @@ spec:
   baseRefs:
     - name: llm-inference-service-config-model
     - name: llm-inference-service-config-workload
+    - name: llm-inference-service-config-router

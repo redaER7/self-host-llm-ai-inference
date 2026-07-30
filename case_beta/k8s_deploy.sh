@@ -103,6 +103,7 @@ echo "=== 12. KServe Configs ==="
 kubectl apply -f "${SCRIPT_DIR}/kserve/endpoint-picker-config.yaml"
 kubectl apply -f "${SCRIPT_DIR}/kserve/llm-inference-service-config-model.yaml"
 kubectl apply -f "${SCRIPT_DIR}/kserve/llm-inference-service-config-workload.yaml"
+kubectl apply -f "${SCRIPT_DIR}/kserve/llm-inference-service-config-router.yaml"
 
 echo "=== 13. KServe LLMInferenceService ==="
 kubectl apply -f "${SCRIPT_DIR}/kserve/llm-inferenceservice.yaml"

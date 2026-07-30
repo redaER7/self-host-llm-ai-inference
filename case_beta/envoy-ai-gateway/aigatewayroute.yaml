@@ -4,6 +4,8 @@ metadata:
   name: deepseek-route
   namespace: beta
 spec:
+  hostnames:
+    - llm.yacodata.com
   parentRefs:
     - name: ai-gateway
       namespace: envoy-ai-gateway-system
