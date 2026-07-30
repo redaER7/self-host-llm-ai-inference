@@ -1,7 +1,7 @@
 apiVersion: serving.kserve.io/v1alpha1
 kind: LLMInferenceServiceConfig
 metadata:
-  name: qwen-workload
+  name: llm-inference-service-config-workload
   namespace: beta
 spec:
   replicas: 1
@@ -25,24 +25,26 @@ spec:
           - vllm.entrypoints.openai.api_server
         args:
           - --model
-          - Qwen/Qwen2.5-7B-Instruct
+          - casperhansen/deepseek-r1-distill-qwen-14b-awq
           - --port
           - "8000"
           - --host
           - "0.0.0.0"
           - --dtype
           - auto
+          - --quantization
+          - awq
           - --tensor-parallel-size
           - "1"
           - --max-model-len
-          - "4096"
+          - "8192"
           - --max-num-seqs
-          - "4"
+          - "8"
           - --gpu-memory-utilization
-          - "0.85"
+          - "0.90"
           - --download-dir
           - /mnt/huggingface/models
-
+          - --enable-prefix-caching
         env:
           - name: HF_TOKEN
             valueFrom:
@@ -59,27 +61,23 @@ spec:
             value: "all"
           - name: NVIDIA_DRIVER_CAPABILITIES
             value: "compute,utility"
-
         volumeMounts:
           - name: dshm
             mountPath: /dev/shm
           - name: model-cache
             mountPath: /mnt/huggingface/models
-
         resources:
           limits:
             nvidia.com/gpu: "1"
-            memory: 16Gi
+            memory: 20Gi
           requests:
             nvidia.com/gpu: "1"
-            memory: 14Gi
-
+            memory: 10Gi
         securityContext:
           runAsNonRoot: false
           capabilities:
             drop:
               - ALL
-
     volumes:
       - name: dshm
         emptyDir:

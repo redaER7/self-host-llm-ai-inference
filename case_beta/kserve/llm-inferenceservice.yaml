@@ -1,9 +1,9 @@
 apiVersion: serving.kserve.io/v1alpha1
 kind: LLMInferenceService
 metadata:
-  name: qwen-7b
+  name: deepseek-14b
   namespace: beta
 spec:
   baseRefs:
-    - name: qwen-model
-    - name: qwen-workload
+    - name: llm-inference-service-config-model
+    - name: llm-inference-service-config-workload

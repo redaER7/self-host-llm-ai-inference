@@ -8,32 +8,35 @@
 │  HETZNER CP NODE (10.10.0.1) - 4 vCPU / 8 GB RAM                           │
 │                                                                              │
 │  ┌────────────────────────────────────────────────────────────────────────┐ │
-│  │  ENVOY AI GATEWAY PROXY (NodePort :30080 → HTTPS :443)                   ││
-│  │  - TLS termination (Let's Encrypt via cert-manager)                   │ │
-│  │  - Model-based routing (header: x-ai-eg-model: qwen2.5-7b)           │ │
-│  │  - Token metering (Input/Output/Total tokens)                        │ │
-│  │  - Rate limiting (BackendTrafficPolicy)                              │ │
-│  │  - Routes to AIServiceBackend → InferencePool                       │ │
+│  │  ENVOY AI GATEWAY PROXY (NodePort :30080 → HTTPS :443)                 │ │
+│  │  - TLS termination (Let's Encrypt via cert-manager)                    │ │
+│  │  - Model-based routing (header: x-ai-eg-model)                        │ │
+│  │  - Token metering (Input/Output/Total tokens)                          │ │
+│  │  - Rate limiting (BackendTrafficPolicy, 30 req/min + 5K tok/min)       │ │
+│  │  - CORS (SecurityPolicy for NextChat origin)                           │ │
+│  │  - Routes to AIServiceBackend → InferencePool                          │ │
 │  └─────────────────────────────┬──────────────────────────────────────────┘ │
 │                                │                                             │
 │  ┌─────────────────────────────▼──────────────────────────────────────────┐ │
-│  │  KSERVE INTERNAL GATEWAY (ClusterIP, port 80)                         │ │
-│  │  - Created automatically by LLMInferenceService                       │ │
-│  │  - Handles internal routing to vLLM pods                             │ │
-│  │  - Managed by llm-d router (cache-aware, load-aware scheduling)      │ │
+│  │  KSERVE + llm-d (EPP SCHEDULER)                                       │ │
+│  │  - LLMInferenceService manages vLLM lifecycle                         │ │
+│  │  - Creates InferencePool, LeaderWorkerSet, Service + HTTPRoute        │ │
+│  │  - prefix-cache-scorer (weight 2.0)                                   │ │
+│  │  - load-aware-scorer (weight 1.0, threshold 50)                       │ │
+│  │  - max-score-picker                                                    │ │
 │  └─────────────────────────────┬──────────────────────────────────────────┘ │
 │                                │                                             │
 │  ┌─────────────────────────────▼──────────────────────────────────────────┐ │
-│  │  NEXTCHAT FRONTEND (NodePort :30081)                                  │ │
-│  │  - BASE_URL: https://llm.yacodata.com                                │ │
-│  │  - Static React build                                                │ │
+│  │  NEXTCHAT FRONTEND (future)                                            │ │
+│  │  - BASE_URL: https://llm.yacodata.com                                 │ │
+│  │  - Static React build                                                  │ │
 │  └────────────────────────────────────────────────────────────────────────┘ │
 │                                                                              │
 │  CONTROLLERS (Running on CP):                                               │
 │  ├── Envoy Gateway Controller                                              │
 │  ├── Envoy AI Gateway Controller                                           │
 │  ├── KServe Controller (llmisvc-controller-manager)                        │
-│  ├── KServe Controller (kserve-controller-manager)                        │
+│  ├── KServe Controller (kserve-controller-manager)                         │
 │  ├── LWS Operator (LeaderWorkerSet)                                        │
 │  ├── cert-manager                                                          │
 │  └── K3s + Flannel                                                         │
@@ -49,22 +52,23 @@
 │                                                                              │
 │  ┌────────────────────────────────────────────────────────────────────────┐ │
 │  │  VLLM POD (hostNetwork: true, binds 10.10.0.2:8000)                   │ │
-│  │  - Managed by KServe LLMInferenceService                              │ │
-│  │  - Init container downloads model (cached via hostPath)              │ │
+│  │  - Managed by KServe LLMInferenceService "deepseek-14b"               │ │
+│  │  - Init container downloads model (cached via emptyDir)               │ │
 │  │  - vLLM args:                                                         │ │
-│  │    --model Qwen/Qwen2.5-7B-Instruct                                   │ │
+│  │    --model casperhansen/deepseek-r1-distill-qwen-14b-awq              │ │
+│  │    --quantization awq                                                 │ │
 │  │    --tensor-parallel-size 1                                           │ │
-│  │    --max-model-len 4096                                               │ │
-│  │    --max-num-seqs 4                                                   │ │
-│  │    --gpu-memory-utilization 0.85                                      │ │
-│  │    --host 0.0.0.0                                                     │ │
-│  │  - Service: qwen-7b-kserve-workload-svc (ClusterIP :8000)            │ │
+│  │    --max-model-len 8192                                               │ │
+│  │    --max-num-seqs 8                                                   │ │
+│  │    --gpu-memory-utilization 0.90                                      │ │
+│  │    --enable-prefix-caching                                            │ │
+│  │  - Service: deepseek-14b-kserve-workload-svc (ClusterIP :8000)       │ │
 │  └────────────────────────────────────────────────────────────────────────┘ │
 │                                                                              │
 │  GPU Resources:                                                             │
-│  ├── Weights (BF16): ~14 GB                                                │
-│  ├── KV Cache: ~4-6 GB (max 4 concurrent sequences)                        │
-│  └── Total VRAM usage: ~18-20 GB (within 24 GB limit)                      │
+│  ├── Weights (AWQ INT4): ~9.4 GiB                                          │
+│  ├── KV Cache: ~10 GiB (max ~55K tokens, ~6 concurrent at 8K ctx)          │
+│  └── Total VRAM usage: ~19-20 GiB (within 24 GB limit)                     │
 │                                                                              │
-│  Model Cache: /mnt/huggingface/models (hostPath) → 15 GB persistent        │
+│  Model Cache: /mnt/huggingface/models (emptyDir) → 8.8 GB download          │
 └──────────────────────────────────────────────────────────────────────────────┘

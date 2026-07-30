@@ -84,35 +84,36 @@ echo "=== 9. Re-apply Gateways (after KServe CRDs) ==="
 kubectl apply -f "${SCRIPT_DIR}/envoy-ai-gateway/gateway.yaml"
 kubectl apply -f "${SCRIPT_DIR}/envoy-ai-gateway/kserve-gateway.yaml"
 
-echo "=== 10. Monitoring ==="
-kubectl create namespace monitoring --dry-run=client -o yaml | kubectl apply -f -
-helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
-helm upgrade --install kube-prometheus-stack prometheus-community/kube-prometheus-stack \
-  --namespace monitoring \
-  -f "${SCRIPT_DIR}/../monitoring/kube-prometheus-stack-values.yaml"
-kubectl apply -f "${SCRIPT_DIR}/../monitoring/dcgm-exporter.yaml"
+echo "=== 10. ServiceMonitors (Prometheus scrape configs) ==="
+kubectl apply -f "${SCRIPT_DIR}/../monitoring/vllm-service-monitor.yaml"
+kubectl apply -f "${SCRIPT_DIR}/../monitoring/envoy-proxy-service-monitor.yaml"
 
-echo "=== 11. KServe Configs ==="
+echo "=== 11. Grafana dashboards (ConfigMaps with grafana_dashboard label) ==="
+kubectl apply -f "${SCRIPT_DIR}/../monitoring/vllm-dashboard-configmap.yaml"
+kubectl apply -f "${SCRIPT_DIR}/../monitoring/envoy-gateway-dashboard-configmap.yaml"
+kubectl apply -f "${SCRIPT_DIR}/../monitoring/dcgm-nvidia-dashboard-configmap.yaml"
+
+echo "=== 12. KServe Configs ==="
 kubectl apply -f "${SCRIPT_DIR}/kserve/endpoint-picker-config.yaml"
-kubectl apply -f "${SCRIPT_DIR}/kserve/qwen-model.yaml"
-kubectl apply -f "${SCRIPT_DIR}/kserve/qwen-workload.yaml"
+kubectl apply -f "${SCRIPT_DIR}/kserve/llm-inference-service-config-model.yaml"
+kubectl apply -f "${SCRIPT_DIR}/kserve/llm-inference-service-config-workload.yaml"
 
-echo "=== 12. KServe LLMInferenceService ==="
+echo "=== 13. KServe LLMInferenceService ==="
 kubectl apply -f "${SCRIPT_DIR}/kserve/llm-inferenceservice.yaml"
 
-echo "=== 13. Envoy AI Gateway Backend + AIServiceBackend ==="
+echo "=== 14. Envoy AI Gateway Backend + AIServiceBackend ==="
 kubectl apply -f "${SCRIPT_DIR}/envoy-ai-gateway/backend.yaml"
 
-echo "=== 14. AIGatewayRoute ==="
+echo "=== 15. AIGatewayRoute ==="
 kubectl apply -f "${SCRIPT_DIR}/envoy-ai-gateway/aigatewayroute.yaml"
 
-echo "=== 15. Rate Limiting ==="
+echo "=== 16. Rate Limiting ==="
 kubectl apply -f "${SCRIPT_DIR}/envoy-ai-gateway/rate-limit.yaml"
 
-echo "=== 16. CORS policy ==="
+echo "=== 17. CORS policy ==="
 kubectl apply -f "${SCRIPT_DIR}/envoy-ai-gateway/cors-policy.yaml"
 
-echo "=== 17. NextChat frontend ==="
+echo "=== 18. NextChat frontend ==="
 kubectl create namespace frontend --dry-run=client -o yaml | kubectl apply -f -
 kubectl apply -f "${SCRIPT_DIR}/../frontend/nextchat/"
 

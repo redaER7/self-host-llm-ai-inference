@@ -8,11 +8,12 @@ metadata:
 spec:
   namespaceSelector:
     matchNames:
-      - alpha
+      - beta
   selector:
-    matchLabels:
-      app: vllm
+    matchExpressions:
+      - key: serving.kserve.io/inferenceservice
+        operator: Exists
   endpoints:
-    - port: metrics
+    - port: http-serving
       path: /metrics
       interval: 15s

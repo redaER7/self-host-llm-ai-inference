@@ -1,40 +1,72 @@
-# Case β (beta) — Single Model, Improved (with Envoy AI Gateway)
+# Case β (beta) — Single Model with Envoy AI Gateway + KServe + llm-d + EPP
 
-Envoy AI Gateway → KServe LLMInferenceService + vLLM. Control plane on Hetzner CX33, GPU worker on Trooper AI (RTX 4090). Cross-node pod networking via Flannel VXLAN over WireGuard.
+Envoy AI Gateway → KServe LLMInferenceService → llm-d (EPP scheduler) → vLLM (DeepSeek-R1-Distill-Qwen-14B AWQ). Control plane on Hetzner CX33, GPU worker on Trooper AI (RTX 4090). Cross-node pod networking via Flannel VXLAN over WireGuard.
 
 ## Architecture
 
 ```
-Client → llm.yacodata.com (HTTPS :443)
-           ↓
-         Envoy Gateway proxy (CP node, NodePort 30080 → HTTPS :443)
-           ↓
+Client → https://llm.yacodata.com:443
+           │
+           ▼
+         Envoy Gateway proxy (CP node, NodePort 30080)
+           ├── TLS termination (cert-manager + Let's Encrypt)
+           ├── CORS (SecurityPolicy for NextChat origin)
+           │
+           ▼
          AI Gateway Controller — ext-proc (model-based routing)
-           ↓
-         AIServiceBackend "qwen-backend"
-           ↓
-         Backend → InferencePool "qwen-7b-inference-pool"
-           ↓
-         KServe LLMInferenceService "qwen-7b"
-           ├── EPP Scheduler (prefix-cache + load-aware)
-           └── vLLM pod (Qwen/Qwen2.5-7B-Instruct, GPU node, hostNetwork)
-                 │
-          Trooper AI RTX 4090 (24 GB VRAM)
+           ├── x-ai-eg-model header → AIServiceBackend
+           ├── Token metering (InputToken / OutputToken / TotalToken)
+           │
+           ▼
+         AIServiceBackend "deepseek-backend"
+           │
+           ▼
+         Backend → InferencePool "deepseek-14b-inference-pool"
+           │         (gateway-api-inference-extension)
+           ▼
+         KServe internal gateway (kserve namespace, ClusterIP :80)
+           │
+           ▼
+         llm-d router (EPP scheduler)
+           ├── prefix-cache-scorer (weight 2.0)
+           ├── load-aware-scorer (weight 1.0, threshold 50)
+           └── max-score-picker
+           │
+           ▼
+         vLLM pod (GPU node, hostNetwork, 10.10.0.2:8000)
+           ├── model: casperhansen/deepseek-r1-distill-qwen-14b-awq
+           ├── quantization: awq
+           ├── max-model-len: 8192
+           ├── max-num-seqs: 8
+           └── gpu-memory-utilization: 0.90
 ```
 
-The AI Gateway proxy (Envoy) runs on the **control-plane node** (Hetzner). The vLLM pod runs on the **GPU node** (Trooper AI) with `hostNetwork: true`, binding directly to `10.10.0.2:8000`. Cross-node traffic flows over Flannel VXLAN (`UDP 8472`) through a WireGuard tunnel (`10.10.0.0/24`).
+The AI Gateway proxy (Envoy), KServe controller, and llm-d (EPP scheduler) run on the **control-plane node** (Hetzner). The vLLM pod runs on the **GPU node** (Trooper AI) with `hostNetwork: true`, binding directly to `10.10.0.2:8000`. Cross-node traffic flows over Flannel VXLAN (`UDP 8472`) through a WireGuard tunnel (`10.10.0.0/24`).
 
 TLS termination happens at the Envoy Gateway proxy (cert-manager + Let's Encrypt DNS-01 via Cloudflare).
 
-## Benefits Over Alpha
+## Key Features
+
+| Feature | Implementation |
+|---------|---------------|
+| **Model-based routing** | AI Gateway Controller via `x-ai-eg-model` header |
+| **Token metering** | AIGatewayRoute `llmRequestCosts` (input/output/total) |
+| **Rate limiting** | BackendTrafficPolicy (30 req/min + 5000 tok/min) |
+| **EPP scheduling** | KServe endpoint picker (prefix-cache + load-aware) |
+| **InferencePool** | Gateway API Inference Extension CRD |
+| **CORS** | SecurityPolicy for NextChat origins |
+| **TLS** | cert-manager + Let's Encrypt DNS-01 via Cloudflare |
+
+## Benefits Over Plain Deployment
 
 | Benefit | Why |
 |---------|-----|
 | **Production routing** | Envoy AI Gateway with token metering, rate limiting, model-based routing |
+| **KServe lifecycle** | LLMInferenceService manages deployment, service, InferencePool, HTTPRoute automatically |
+| **Cache-aware routing** | EPP scheduler routes to pods with warm KV cache (prefix-cache-scorer) |
+| **Load-aware routing** | EPP distributes across healthy pods (load-aware-scorer) |
+| **Simple model updates** | Change model in config, redeploy — weights download at startup |
 | **Single entry point** | Envoy Gateway NodePort on `llm.yacodata.com` |
-| **Standard networking** | Flannel overlay; no hostNetwork on the gateway proxy |
-| **KServe lifecycle** | LLMInferenceService manages deployment, service, HTTPRoute automatically |
-| **Simple model updates** | Change model name in config, redeploy — weights download at startup |
 
 ## Requirements
 
@@ -46,19 +78,20 @@ Same K3s setup as alpha — see [case_alpha/README.md](../case_alpha/README.md#r
   
 | GPU | VRAM | Why |
 |-----|------|-----|
-| **RTX 4090** | 24 GB | Fits Qwen2.5-7B-Instruct at BF16 (~14 GiB) with room for KV cache |
+| **RTX 4090** | 24 GB | Fits DeepSeek-R1-Distill-Qwen-14B AWQ (~9.4 GiB weights) with room for KV cache |
 
 ### Model Weights
 
-Weights download from HuggingFace on first pod startup. The model-cache volume (`hostPath`) persists across restarts, avoiding re-download.
+Weights download from HuggingFace on first pod startup. The model-cache volume persists across restarts, avoiding re-download.
 
 | Property | Value |
 |----------|-------|
-| Model | Qwen/Qwen2.5-7B-Instruct |
+| Model | casperhansen/deepseek-r1-distill-qwen-14b-awq |
+| Quantization | AWQ (INT4) |
 | Strategy | HF download at startup |
-| Cold start | ~5-15 min (first time), ~10 s (cached) |
-| Download size | ~15 GB (BF16) |
-| VRAM usage | ~14 GiB weights + ~4-6 GiB KV cache (at 4096 ctx, batch=1) |
+| Cold start | ~3-4 min (first time), ~10 s (cached) |
+| Download size | ~8.8 GB |
+| VRAM usage | ~9.4 GiB weights + ~10 GiB KV cache (at 8192 ctx, batch=8) |
 
 ### Software Stack
 
@@ -68,7 +101,7 @@ Weights download from HuggingFace on first pod startup. The model-cache volume (
 | cert-manager | 1.18+ | Webhook certificates + Let's Encrypt (DNS-01 Cloudflare) |
 | Envoy Gateway | v1.8+ | Gateway API provider; proxy pods on CP node |
 | AI Gateway Controller (Helm) | v1.0.0 | AI routing, token metering, rate limiting |
-| LWS Operator | v0.6.2+ | LeaderWorkerSet (KServe dependency) |
+| LWS Operator | v0.9+ | LeaderWorkerSet (KServe dependency) |
 | KServe | v0.18+ | LLMInferenceService CRD |
 | vLLM | latest | OpenAI-compatible LLM serving |
 
@@ -90,7 +123,7 @@ Weights download from HuggingFace on first pod startup. The model-cache volume (
 12. **Create secrets** — registry credentials and HF token
 13. **Deploy LLMInferenceServiceConfig + LLMInferenceService** — model + workload configs
 14. **Deploy Backend + AIServiceBackend** — Backend points to InferencePool created by LLMInferenceService
-15. **Apply AIGatewayRoute** — route with header match `x-ai-eg-model: qwen2.5-7b`
+15. **Apply AIGatewayRoute** — route with header match `x-ai-eg-model: casperhansen/deepseek-r1-distill-qwen-14b-awq`
 16. **Apply CORS policy** — allow NextChat origin to call Envoy Gateway
 17. **Set DNS A record** — llm.yacodata.com → Hetzner CP public IP
 18. **Deploy NextChat** — frontend UI on CP node (see [frontend/nextchat](../frontend/nextchat))
@@ -188,7 +221,11 @@ You should see replies (~31ms for Hetzner ↔ Trooper AI).
 | `envoy-ai-gateway/aigatewayroute.yaml` | AIGatewayRoute (header match → AIServiceBackend) |
 | `envoy-ai-gateway/backend.yaml` | Backend + AIServiceBackend (Backend points to InferencePool) |
 | `envoy-ai-gateway/cors-policy.yaml` | SecurityPolicy (CORS for NextChat origin) |
-| `kserve/` | KServe LLMInferenceServiceConfig + LLMInferenceService |
+| `envoy-ai-gateway/rate-limit.yaml` | BackendTrafficPolicy (30 req/min + 5000 tok/min) |
+| `kserve/llm-inference-service-config-model.yaml` | Model source (HF repo + model name) |
+| `kserve/llm-inference-service-config-workload.yaml` | Workload config (vLLM image, args, resources, GPU scheduling) |
+| `kserve/llm-inferenceservice.yaml` | LLMInferenceService (combines model + workload) |
+| `kserve/endpoint-picker-config.yaml` | EPP scheduler scorer weights |
 | `epp-scheduler/` | EPP scorer weights reference |
 
 ---
@@ -200,8 +237,6 @@ You should see replies (~31ms for Hetzner ↔ Trooper AI).
 export CLOUDFLARE_API_TOKEN="your-cloudflare-token"
 export REGISTRY_USERNAME="your-registry-user"
 export REGISTRY_PASSWORD="your-registry-password"
-export REGISTRY_USER="your-registry-user"
-export REGISTRY_PASS="your-registry-password"
 export HF_TOKEN="your-hf-token"
 
 # 2. Create all secrets
@@ -269,7 +304,7 @@ kubectl wait --timeout=2m -n envoy-ai-gateway-system deployment/ai-gateway-contr
 ### 7. Install LWS Operator
 
 ```bash
-helm install lws oci://registry.k8s.io/lws/charts/lws --version v0.6.2 \
+helm install lws oci://registry.k8s.io/lws/charts/lws --version v0.9.0 \
   --namespace lws-system --create-namespace
 ```
 
@@ -326,38 +361,43 @@ kubectl create secret generic hf-token \
 ### 12. Deploy LLMInferenceService
 
 ```bash
-kubectl apply -f kserve/qwen-model.yaml
-kubectl apply -f kserve/qwen-workload.yaml
+kubectl apply -f kserve/llm-inference-service-config-model.yaml
+kubectl apply -f kserve/llm-inference-service-config-workload.yaml
 kubectl apply -f kserve/llm-inferenceservice.yaml
 ```
 
-Wait for the vLLM pod to be ready (first start downloads ~15 GB weights):
+Wait for the vLLM pod to be ready (first start downloads ~8.8 GB weights):
 ```bash
-kubectl wait --timeout=20m -n beta pod -l app.kubernetes.io/name=qwen-7b --for=condition=Ready
+kubectl wait --timeout=10m -n beta pod -l serving.kserve.io/inferenceservice=deepseek-14b --for=condition=Ready
 ```
 
 ### 13. Deploy Backend + AIServiceBackend
 
 ```bash
 kubectl apply -f envoy-ai-gateway/backend.yaml
-kubectl apply -f envoy-ai-gateway/aiservicebackend.yaml
 ```
 
 ### 14. Apply AIGatewayRoute
 
-Routes requests with header `x-ai-eg-model: qwen2.5-7b` to the AIServiceBackend:
+Routes requests with header `x-ai-eg-model: casperhansen/deepseek-r1-distill-qwen-14b-awq` to the AIServiceBackend:
 
 ```bash
 kubectl apply -f envoy-ai-gateway/aigatewayroute.yaml
 ```
 
-### 15. Apply CORS policy
+### 15. Apply rate limiting
+
+```bash
+kubectl apply -f envoy-ai-gateway/rate-limit.yaml
+```
+
+### 16. Apply CORS policy
 
 ```bash
 kubectl apply -f envoy-ai-gateway/cors-policy.yaml
 ```
 
-### 16. Expose Envoy Gateway via NodePort
+### 17. Expose Envoy Gateway via NodePort
 
 Envoy Gateway auto-creates a service for each Gateway. Patch it to NodePort:
 
@@ -367,18 +407,18 @@ kubectl patch service envoy-envoy-ai-gateway-system-ai-gateway-e09f2496 -n envoy
   -p='[{"op":"replace","path":"/spec/type","value":"NodePort"}]'
 ```
 
-### 17. Set DNS A records
+### 18. Set DNS A records
 
 | Record | Type | Value | Purpose |
 |--------|------|-------|---------|
 | `llm.yacodata.com` | A | `89.167.109.193` | TLS SNI for Envoy Gateway (CP public IP) |
 | `chat.yacodata.com` | A | `89.167.109.193` | NextChat frontend |
 
-### 18. Open firewall port
+### 19. Open firewall port
 
 Open TCP port **30080** on the Hetzner firewall to allow external traffic to the NodePort.
 
-### 19. Deploy NextChat frontend
+### 20. Deploy NextChat frontend
 
 ```bash
 kubectl create namespace frontend
@@ -387,16 +427,16 @@ kubectl apply -f ../frontend/nextchat/
 
 Access at `https://chat.yacodata.com` and configure:
 - **Endpoint**: `https://llm.yacodata.com/v1`
-- **Model**: `qwen2.5-7b`
+- **Model**: `casperhansen/deepseek-r1-distill-qwen-14b-awq`
 
-### 20. Test
+### 21. Test
 
 ```bash
 curl -X POST https://llm.yacodata.com/v1/chat/completions \
   -H "Content-Type: application/json" \
-  -H "x-ai-eg-model: qwen2.5-7b" \
+  -H "x-ai-eg-model: casperhansen/deepseek-r1-distill-qwen-14b-awq" \
   -d '{
-    "model": "qwen2.5-7b",
+    "model": "casperhansen/deepseek-r1-distill-qwen-14b-awq",
     "messages": [{"role": "user", "content": "Write a hello world in Python"}],
     "max_tokens": 100
   }'
@@ -404,20 +444,17 @@ curl -X POST https://llm.yacodata.com/v1/chat/completions \
 
 ---
 
-## Key Differences from Alpha
+## Key Differences from Plain Deployment
 
-| Aspect | alpha | beta |
-|--------|-------|------|
-| Gateway | FastAPI (custom, CP node) | Envoy AI Gateway (CP node) |
-| Data plane | Flannel VXLAN over WireGuard | Flannel VXLAN over WireGuard |
-| Control plane | WireGuard for Flannel VXLAN | WireGuard for Flannel VXLAN |
-| Model deployment | plain Deployment | KServe LLMInferenceService |
-| Model weights | HF download at startup | HF download at startup |
-| Router | None (kube-proxy) | Envoy AI Gateway ext-proc (model-based) |
-| Token metering | ❌ | ✅ |
-| Rate limiting | ❌ | ✅ (per-user, per-model) |
-| TLS | ❌ (no, plain HTTP) | ✅ (Let's Encrypt via cert-manager) |
-| CORS | ❌ | ✅ (NextChat integration) |
+| Aspect | Plain Deployment (alpha+envoy-AI) | KServe + llm-d (beta) |
+|--------|----------------|----------------------|
+| Model lifecycle | Manual Deployment | LLMInferenceService CRD |
+| Routing | Manual Service/HTTPRoute | InferencePool + EPP scheduler |
+| Cache-aware routing | None | EPP prefix-cache-scorer (weight 2.0) |
+| Load-aware routing | None | EPP load-aware-scorer (weight 1.0, threshold 50) |
+| Token metering | Enabled | Enabled |
+| Rate limiting | None | 30 req/min + 5000 tok/min |
+| Model updates | Edit Deployment YAML | Edit LLMInferenceServiceConfig |
 
 ---
 
@@ -426,11 +463,11 @@ curl -X POST https://llm.yacodata.com/v1/chat/completions \
 - Multi-model serving (see gamma)
 - MIG or GPU sharing (see gamma)
 - RunPod provider (see omega)
-- Cache-aware routing / prefix caching (llm-d router + EPP not currently deployed in this setup)
+- Baked model image (downloads from HF at startup — use [model-image builder](../model-image/) to bake)
 
 ## When to use beta
 
-- Production single-model deployment with Envoy AI Gateway routing
-- When token metering and rate limiting are required
+- Single-model deployment with KServe lifecycle management
+- When token metering, rate limiting, and cache-aware routing are required
 - When you want a single public HTTPS endpoint with TLS termination
 - When all nodes are on the same network (skip WireGuard — Flannel VXLAN works natively)

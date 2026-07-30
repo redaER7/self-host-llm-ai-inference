@@ -1,13 +1,13 @@
 # EPP Scheduler Configuration
-#
-# Integrated into LLMInferenceServiceConfig as the scheduler spec.
-# See: ../kserve/llm-inferenceservice-config.yaml
-#
-# Scorer weights for the endpoint picker:
-#   prefix-cache-scorer:  2.0  — routes to pods with matching KV cache blocks
-#   load-aware-scorer:    1.0  — routes to pods with shortest queue
-#   picker policy: max-score  — selects the pod with the highest combined score
-#
-# This file is a reference only — the actual config is embedded in the
-# LLMInferenceServiceConfig CRD:
-#   case_beta/kserve/llm-inferenceservice-config.yaml
+
+The EPP (Endpoint Picker) is configured via the `endpoint-picker-config.yaml` ConfigMap in `kserve/`.
+
+Current weights for DeepSeek 14B AWQ:
+- `prefix-cache-scorer`:  weight 2.0 — routes to pods with matching KV cache blocks
+- `load-aware-scorer`:    weight 1.0 — routes to pods with shortest queue, threshold 50
+- picker policy:          max-score — selects the pod with the highest combined score
+
+With single-replica deployments the EPP is effectively a pass-through. These weights matter when scaling to 2+ replicas.
+
+For reference, see the ConfigMap:
+  case_beta/kserve/endpoint-picker-config.yaml
