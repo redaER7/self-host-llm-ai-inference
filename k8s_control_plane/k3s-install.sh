@@ -2,11 +2,6 @@
 set -euo pipefail
 
 # K3s Control Plane Installer
-# Run this on your Hetzner server to set up a single-node K3s control plane.
-#
-# Usage:
-#   ssh root@<hetzner-ip>
-#   bash k3s-install.sh
 
 INSTALL_K3S_VERSION="v1.33.2+k3s1"
 

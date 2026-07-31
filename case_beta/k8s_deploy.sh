@@ -99,6 +99,22 @@ kubectl apply -f "${SCRIPT_DIR}/../monitoring/vllm-dashboard-configmap.yaml"
 kubectl apply -f "${SCRIPT_DIR}/../monitoring/envoy-gateway-dashboard-configmap.yaml"
 kubectl apply -f "${SCRIPT_DIR}/../monitoring/dcgm-nvidia-dashboard-configmap.yaml"
 
+echo "=== 16. kube-prometheus-stack (Prometheus + Grafana + node_exporter) ==="
+helm repo add prometheus-community https://prometheus-community.github.io/helm-charts --force-update
+helm upgrade --install kube-prometheus-stack prometheus-community/kube-prometheus-stack \
+  --namespace monitoring --create-namespace \
+  -f "${SCRIPT_DIR}/../monitoring/kube-prometheus-stack-values.yaml"
+kubectl wait --timeout=3m -n monitoring pod -l app.kubernetes.io/instance=kube-prometheus-stack --for=condition=Ready 2>/dev/null 
+
+echo "=== 18. DCGM Exporter (GPU metrics on GPU node) ==="
+helm repo add gpu-helm-charts https://nvidia.github.io/dcgm-exporter/helm-charts --force-update
+helm upgrade --install dcgm-exporter gpu-helm-charts/dcgm-exporter \
+  --namespace monitoring \
+  --set serviceMonitor.enabled=true \
+  --set serviceMonitor.namespace=monitoring \
+  --set serviceMonitor.labels.release=kube-prometheus-stack
+kubectl wait --timeout=2m -n monitoring pod -l app.kubernetes.io/name=dcgm-exporter --for=condition=Ready 2>/dev/null || true
+
 echo "=== 12. KServe Configs ==="
 kubectl apply -f "${SCRIPT_DIR}/kserve/endpoint-picker-config.yaml"
 kubectl apply -f "${SCRIPT_DIR}/kserve/llm-inference-service-config-model.yaml"
