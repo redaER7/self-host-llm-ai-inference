@@ -90,23 +90,21 @@ kubectl patch service "$ENVOY_SVC" -n envoy-gateway-system \
   --type=json \
   -p='[{"op":"replace","path":"/spec/ports/0/nodePort","value":30080}]'
 
-echo "=== 10. ServiceMonitors (Prometheus scrape configs) ==="
-kubectl apply -f "${SCRIPT_DIR}/../monitoring/vllm-service-monitor.yaml"
-kubectl apply -f "${SCRIPT_DIR}/../monitoring/envoy-proxy-service-monitor.yaml"
-
-echo "=== 11. Grafana dashboards (ConfigMaps with grafana_dashboard label) ==="
-kubectl apply -f "${SCRIPT_DIR}/../monitoring/vllm-dashboard-configmap.yaml"
-kubectl apply -f "${SCRIPT_DIR}/../monitoring/envoy-gateway-dashboard-configmap.yaml"
-kubectl apply -f "${SCRIPT_DIR}/../monitoring/dcgm-nvidia-dashboard-configmap.yaml"
-
-echo "=== 16. kube-prometheus-stack (Prometheus + Grafana + node_exporter) ==="
+echo "=== 10. kube-prometheus-stack (Prometheus + Grafana + node_exporter, provides ServiceMonitor CRDs) ==="
 helm repo add prometheus-community https://prometheus-community.github.io/helm-charts --force-update
 helm upgrade --install kube-prometheus-stack prometheus-community/kube-prometheus-stack \
   --namespace monitoring --create-namespace \
   -f "${SCRIPT_DIR}/../monitoring/kube-prometheus-stack-values.yaml"
-kubectl wait --timeout=3m -n monitoring pod -l app.kubernetes.io/instance=kube-prometheus-stack --for=condition=Ready 2>/dev/null 
+kubectl wait --timeout=3m -n monitoring pod -l app.kubernetes.io/instance=kube-prometheus-stack --for=condition=Ready 2>/dev/null
 
-echo "=== 18. DCGM Exporter (GPU metrics on GPU node) ==="
+echo "Waiting for ServiceMonitor CRD to be established..."
+kubectl wait --for=condition=Established crd/servicemonitors.monitoring.coreos.com --timeout=60s
+
+echo "=== 11. ServiceMonitors (Prometheus scrape configs) ==="
+kubectl apply -f "${SCRIPT_DIR}/../monitoring/vllm-service-monitor.yaml"
+kubectl apply -f "${SCRIPT_DIR}/../monitoring/envoy-proxy-service-monitor.yaml"
+
+echo "=== 12. DCGM Exporter (GPU metrics on GPU node) ==="
 helm repo add gpu-helm-charts https://nvidia.github.io/dcgm-exporter/helm-charts --force-update
 helm upgrade --install dcgm-exporter gpu-helm-charts/dcgm-exporter \
   --namespace monitoring \
@@ -115,34 +113,40 @@ helm upgrade --install dcgm-exporter gpu-helm-charts/dcgm-exporter \
   --set serviceMonitor.labels.release=kube-prometheus-stack
 kubectl wait --timeout=2m -n monitoring pod -l app.kubernetes.io/name=dcgm-exporter --for=condition=Ready 2>/dev/null || true
 
-echo "=== 12. KServe Configs ==="
+echo "=== 13. Grafana dashboards (ConfigMaps with grafana_dashboard label) ==="
+kubectl apply -f "${SCRIPT_DIR}/../monitoring/vllm-dashboard-configmap.yaml"
+kubectl apply -f "${SCRIPT_DIR}/../monitoring/envoy-gateway-dashboard-configmap.yaml"
+kubectl apply -f "${SCRIPT_DIR}/../monitoring/dcgm-nvidia-dashboard-configmap.yaml"
+
+echo "=== 14. KServe Configs ==="
 kubectl apply -f "${SCRIPT_DIR}/kserve/endpoint-picker-config.yaml"
 kubectl apply -f "${SCRIPT_DIR}/kserve/llm-inference-service-config-model.yaml"
 kubectl apply -f "${SCRIPT_DIR}/kserve/llm-inference-service-config-workload.yaml"
 
-echo "=== 13. KServe LLMInferenceService ==="
+echo "=== 15. KServe LLMInferenceService ==="
 kubectl apply -f "${SCRIPT_DIR}/kserve/llm-inferenceservice.yaml"
 
-echo "=== 14. Envoy AI Gateway Backend + AIServiceBackend ==="
+echo "=== 16. Envoy AI Gateway Backend + AIServiceBackend ==="
 kubectl apply -f "${SCRIPT_DIR}/envoy-ai-gateway/backend.yaml"
 
-echo "=== 15. AIGatewayRoute ==="
+echo "=== 17. AIGatewayRoute ==="
 kubectl apply -f "${SCRIPT_DIR}/envoy-ai-gateway/aigatewayroute.yaml"
 
-echo "=== 16. Rate Limiting ==="
+echo "=== 18. Rate Limiting ==="
 kubectl apply -f "${SCRIPT_DIR}/envoy-ai-gateway/rate-limit.yaml"
 
-echo "=== 17. CORS policy ==="
+echo "=== 19. CORS policy ==="
 kubectl apply -f "${SCRIPT_DIR}/envoy-ai-gateway/cors-policy.yaml"
 
-echo "=== 18. NextChat frontend ==="
+echo "=== 20. NextChat frontend ==="
 kubectl create namespace frontend --dry-run=client -o yaml | kubectl apply -f -
 kubectl apply -f "${SCRIPT_DIR}/../frontend/nextchat/"
 
-echo "=== 19. NextChat HTTPRoute (pointing to ai-gateway) ==="
+echo "=== 21. NextChat HTTPRoute (pointing to ai-gateway) ==="
 kubectl apply -f "${SCRIPT_DIR}/envoy-ai-gateway/httproute-nextchat.yaml"
 
 echo ""
 echo "All resources deployed."
 echo "Next steps (run once after initial deploy):"
 echo "  bash hetzner-cp-node-socat.sh"
+

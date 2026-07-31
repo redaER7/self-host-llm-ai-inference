@@ -47,7 +47,7 @@ spec:
           - --enable-prefix-caching
           - --enable-auto-tool-choice
           - --tool-call-parser
-          - qwen25
+          - hermes
         env:
           - name: HF_TOKEN
             valueFrom:
