@@ -57,6 +57,14 @@ grafana:
     port: 3000
   #nodeSelector:
   #  node-role.kubernetes.io/gpu-node: "true"
+  sidecar:
+    dashboards:
+      enabled: true
+      label: grafana_dashboard
+      labelValue: "1"
+      searchNamespace: ALL
+      provider:
+        allowUiUpdates: true
   tolerations:
     - key: "gpu-node"
       operator: "Equal"

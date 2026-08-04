@@ -43,8 +43,8 @@
                     "kind": "DataQuery",
                     "spec": {
                       "editorMode": "code",
-                      "expr": "rate(vllm:iteration_tokens_total_sum[5m])",
-                      "legendFormat": "Iteration Tokens Total",
+                      "expr": "rate(vllm:iteration_tokens_total_sum{model_name=~\"$model\"}[5m])",
+                      "legendFormat": "{{model_name}}",
                       "range": true
                     },
                     "version": "v0"
@@ -164,8 +164,8 @@
                     "kind": "DataQuery",
                     "spec": {
                       "editorMode": "code",
-                      "expr": "vllm:generation_tokens_total",
-                      "legendFormat": "Generation Tokens Total",
+                      "expr": "vllm:generation_tokens_total{model_name=~\"$model\"}",
+                      "legendFormat": "{{model_name}}",
                       "range": true
                     },
                     "version": "v0"
@@ -285,8 +285,8 @@
                     "kind": "DataQuery",
                     "spec": {
                       "editorMode": "code",
-                      "expr": "histogram_quantile(0.5, sum(rate(vllm:request_time_per_output_token_seconds_bucket[5m])) by (le, model_name))",
-                      "legendFormat": "Time per output token p50",
+                      "expr": "histogram_quantile(0.5, sum(rate(vllm:request_time_per_output_token_seconds_bucket{model_name=~\"$model\"}[5m])) by (le, model_name))",
+                      "legendFormat": "{{model_name}} p50",
                       "range": true
                     },
                     "version": "v0"
@@ -306,8 +306,8 @@
                     "kind": "DataQuery",
                     "spec": {
                       "editorMode": "code",
-                      "expr": "histogram_quantile(0.95, rate(vllm:time_per_output_token_seconds_bucket[5m]))",
-                      "legendFormat": "Time per output token p95",
+                      "expr": "histogram_quantile(0.95, rate(vllm:time_per_output_token_seconds_bucket{model_name=~\"$model\"}[5m]))",
+                      "legendFormat": "{{model_name}} p95",
                       "range": true
                     },
                     "version": "v0"
@@ -427,8 +427,8 @@
                     "kind": "DataQuery",
                     "spec": {
                       "editorMode": "code",
-                      "expr": "histogram_quantile(0.5, rate(vllm:time_to_first_token_seconds_bucket[5m]))",
-                      "legendFormat": "TTFT p50",
+                      "expr": "histogram_quantile(0.5, rate(vllm:time_to_first_token_seconds_bucket{model_name=~\"$model\"}[5m]))",
+                      "legendFormat": "{{model_name}} p50",
                       "range": true
                     },
                     "version": "v0"
@@ -448,8 +448,8 @@
                     "kind": "DataQuery",
                     "spec": {
                       "editorMode": "code",
-                      "expr": "histogram_quantile(0.95, rate(vllm:time_to_first_token_seconds_bucket[5m]))",
-                      "legendFormat": "TTFT p95",
+                      "expr": "histogram_quantile(0.95, rate(vllm:time_to_first_token_seconds_bucket{model_name=~\"$model\"}[5m]))",
+                      "legendFormat": "{{model_name}} p95",
                       "range": true
                     },
                     "version": "v0"
@@ -569,8 +569,8 @@
                     "kind": "DataQuery",
                     "spec": {
                       "editorMode": "code",
-                      "expr": "histogram_quantile(0.5, rate(vllm:request_queue_time_seconds_bucket[5m]))",
-                      "legendFormat": "Queue Time p50",
+                      "expr": "histogram_quantile(0.5, rate(vllm:request_queue_time_seconds_bucket{model_name=~\"$model\"}[5m]))",
+                      "legendFormat": "{{model_name}} p50",
                       "range": true
                     },
                     "version": "v0"
@@ -590,8 +590,8 @@
                     "kind": "DataQuery",
                     "spec": {
                       "editorMode": "code",
-                      "expr": "histogram_quantile(0.95, rate(vllm:request_queue_time_seconds_bucket[5m]))",
-                      "legendFormat": "Queue Time p95",
+                      "expr": "histogram_quantile(0.95, rate(vllm:request_queue_time_seconds_bucket{model_name=~\"$model\"}[5m]))",
+                      "legendFormat": "{{model_name}} p95",
                       "range": true
                     },
                     "version": "v0"
@@ -711,8 +711,8 @@
                     "kind": "DataQuery",
                     "spec": {
                       "editorMode": "code",
-                      "expr": "histogram_quantile(0.5, rate(vllm:request_prompt_tokens_bucket[5m]))",
-                      "legendFormat": "Prompt Tokens p50",
+                      "expr": "histogram_quantile(0.5, rate(vllm:request_prompt_tokens_bucket{model_name=~\"$model\"}[5m]))",
+                      "legendFormat": "{{model_name}} p50",
                       "range": true
                     },
                     "version": "v0"
@@ -732,8 +732,8 @@
                     "kind": "DataQuery",
                     "spec": {
                       "editorMode": "code",
-                      "expr": "histogram_quantile(0.95, rate(vllm:request_prompt_tokens_bucket[5m]))",
-                      "legendFormat": "Prompt Tokens p95",
+                      "expr": "histogram_quantile(0.95, rate(vllm:request_prompt_tokens_bucket{model_name=~\"$model\"}[5m]))",
+                      "legendFormat": "{{model_name}} p95",
                       "range": true
                     },
                     "version": "v0"
@@ -853,8 +853,8 @@
                     "kind": "DataQuery",
                     "spec": {
                       "editorMode": "code",
-                      "expr": "histogram_quantile(0.5, rate(vllm:request_inference_time_seconds_bucket[5m]))",
-                      "legendFormat": "Inference Time p50",
+                      "expr": "histogram_quantile(0.5, rate(vllm:request_inference_time_seconds_bucket{model_name=~\"$model\"}[5m]))",
+                      "legendFormat": "{{model_name}} p50",
                       "range": true
                     },
                     "version": "v0"
@@ -874,8 +874,8 @@
                     "kind": "DataQuery",
                     "spec": {
                       "editorMode": "code",
-                      "expr": "histogram_quantile(0.95, rate(vllm:request_inference_time_seconds_bucket[5m]))",
-                      "legendFormat": "Inference Time p95",
+                      "expr": "histogram_quantile(0.95, rate(vllm:request_inference_time_seconds_bucket{model_name=~\"$model\"}[5m]))",
+                      "legendFormat": "{{model_name}} p95",
                       "range": true
                     },
                     "version": "v0"
@@ -995,8 +995,8 @@
                     "kind": "DataQuery",
                     "spec": {
                       "editorMode": "code",
-                      "expr": "vllm:num_preemptions_total",
-                      "legendFormat": "Preemptions Total",
+                      "expr": "vllm:num_preemptions_total{model_name=~\"$model\"}",
+                      "legendFormat": "{{model_name}}",
                       "range": true
                     },
                     "version": "v0"
@@ -1016,8 +1016,8 @@
                     "kind": "DataQuery",
                     "spec": {
                       "editorMode": "code",
-                      "expr": "rate(vllm:num_preemptions_total[5m])",
-                      "legendFormat": "Preemptions Rate",
+                      "expr": "rate(vllm:num_preemptions_total{model_name=~\"$model\"}[5m])",
+                      "legendFormat": "{{model_name}}",
                       "range": true
                     },
                     "version": "v0"
@@ -1137,8 +1137,8 @@
                     "kind": "DataQuery",
                     "spec": {
                       "editorMode": "code",
-                      "expr": "vllm:kv_cache_usage_perc",
-                      "legendFormat": "KV Cache Usage",
+                      "expr": "vllm:kv_cache_usage_perc{model_name=~\"$model\"}",
+                      "legendFormat": "{{model_name}}",
                       "range": true
                     },
                     "version": "v0"
@@ -1265,8 +1265,8 @@
                     "kind": "DataQuery",
                     "spec": {
                       "editorMode": "code",
-                      "expr": "vllm:num_requests_running",
-                      "legendFormat": "Running",
+                      "expr": "vllm:num_requests_running{model_name=~\"$model\"}",
+                      "legendFormat": "{{model_name}} Running",
                       "range": true
                     },
                     "version": "v0"
@@ -1286,8 +1286,8 @@
                     "kind": "DataQuery",
                     "spec": {
                       "editorMode": "code",
-                      "expr": "vllm:num_requests_waiting",
-                      "legendFormat": "Waiting",
+                      "expr": "vllm:num_requests_waiting{model_name=~\"$model\"}",
+                      "legendFormat": "{{model_name}} Waiting",
                       "range": true
                     },
                     "version": "v0"
@@ -1553,5 +1553,18 @@
     "to": "now"
   },
   "title": "vLLM Metrics",
-  "variables": []
+  "variables": [
+    {
+      "kind": "Variable",
+      "spec": {
+        "name": "model",
+        "type": "query",
+        "query": "label_values(vllm:num_requests_running, model_name)",
+        "current": {},
+        "includeAll": true,
+        "allValue": ".*",
+        "refresh": 2
+      }
+    }
+  ]
 }
