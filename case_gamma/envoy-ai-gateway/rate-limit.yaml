@@ -1,21 +1,19 @@
 ---
-# Global rate limit policy targeting the AIGatewayRoute.
-# Rate limits are per-model based on the x-ai-eg-model header.
-# Envoy AI Gateway resolves per-backend rate limits from AIGatewayRoute rules.
+# Per-model request rate limit (Qwen 7B — faster, higher limit)
 apiVersion: gateway.envoyproxy.io/v1alpha1
-kind: ClientTrafficPolicy
+kind: BackendTrafficPolicy
 metadata:
-  name: gamma-rate-limit-global
+  name: gamma-rate-limit-qwen7b
   namespace: gamma
 spec:
   targetRefs:
-    - group: aigateway.envoyproxy.io
-      kind: AIGatewayRoute
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
       name: gamma-route
   rateLimit:
-    global:
+    type: Local
+    local:
       rules:
-        # Qwen 2.5 7B — faster model, higher limit
         - clientSelectors:
             - headers:
                 - name: x-ai-eg-model
@@ -24,7 +22,22 @@ spec:
           limit:
             requests: 50
             unit: Minute
-        # Qwen 2.5 14B — slower model, standard limit
+---
+# Per-model request rate limit (Qwen 14B — slower, standard limit)
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: BackendTrafficPolicy
+metadata:
+  name: gamma-rate-limit-qwen14b
+  namespace: gamma
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: gamma-route
+  rateLimit:
+    type: Local
+    local:
+      rules:
         - clientSelectors:
             - headers:
                 - name: x-ai-eg-model
@@ -32,50 +45,4 @@ spec:
                   value: "Qwen/Qwen2.5-14B-Instruct-AWQ"
           limit:
             requests: 30
-            unit: Minute
----
-# Global token rate limit for Qwen 2.5 7B (10K tok/min)
-apiVersion: gateway.envoyproxy.io/v1alpha1
-kind: ClientTrafficPolicy
-metadata:
-  name: gamma-rate-limit-qwen7b-tokens
-  namespace: gamma
-spec:
-  targetRefs:
-    - group: aigateway.envoyproxy.io
-      kind: AIGatewayRoute
-      name: gamma-route
-  rateLimit:
-    global:
-      rules:
-        - clientSelectors:
-            - headers:
-                - name: x-ai-eg-model
-                  type: Exact
-                  value: "Qwen/Qwen2.5-7B-Instruct-AWQ"
-          limit:
-            requests: 10000
-            unit: Minute
----
-# Global token rate limit for Qwen 2.5 14B (5K tok/min)
-apiVersion: gateway.envoyproxy.io/v1alpha1
-kind: ClientTrafficPolicy
-metadata:
-  name: gamma-rate-limit-qwen14b-tokens
-  namespace: gamma
-spec:
-  targetRefs:
-    - group: aigateway.envoyproxy.io
-      kind: AIGatewayRoute
-      name: gamma-route
-  rateLimit:
-    global:
-      rules:
-        - clientSelectors:
-            - headers:
-                - name: x-ai-eg-model
-                  type: Exact
-                  value: "Qwen/Qwen2.5-14B-Instruct-AWQ"
-          limit:
-            requests: 5000
             unit: Minute

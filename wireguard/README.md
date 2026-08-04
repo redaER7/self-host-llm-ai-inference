@@ -117,6 +117,8 @@ AllowedIPs = 10.10.0.3/32
 
 ## Firewall reference (both nodes)
 
+### CP node (Hetzner) — UFW
+
 | Port | Protocol | From | Purpose |
 |------|----------|------|---------|
 | 51820 | UDP | Anywhere | WireGuard tunnel |
@@ -124,6 +126,22 @@ AllowedIPs = 10.10.0.3/32
 | 6443 | TCP | 10.10.0.0/24 | K3s API |
 | 10250 | TCP | 10.10.0.0/24 | Kubelet |
 | 22 | TCP | Anywhere | SSH |
+
+### GPU node (Trooper AI) — UFW
+
+| Port | Protocol | From | Purpose |
+|------|----------|------|---------|
+| 8472 | UDP | 10.10.0.0/24 | Flannel VXLAN |
+| 22 | TCP | Anywhere | SSH |
+
+### External firewall (Trooper AI GPU node)
+
+Trooper AI has an external firewall in front of the GPU node. These rules must be configured in the Trooper AI dashboard **before** WireGuard can connect:
+
+| Port | Protocol | Destination | Direction | Purpose |
+|------|----------|-------------|-----------|---------|
+| 51820 | UDP | 169.58.97.237 | Outbound | WireGuard handshake/keepalive to CP |
+
 
 ## Files
 

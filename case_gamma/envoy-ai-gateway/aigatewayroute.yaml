@@ -30,16 +30,12 @@ spec:
               value: "Qwen/Qwen2.5-7B-Instruct-AWQ"
       backendRefs:
         - name: qwen7b-backend
-          namespace: gamma
-          kind: AIServiceBackend
     - matches:
         - headers:
             - name: x-ai-eg-model
               value: "Qwen/Qwen2.5-14B-Instruct-AWQ"
       backendRefs:
         - name: qwen14b-backend
-          namespace: gamma
-          kind: AIServiceBackend
   llmRequestCosts:
     - metadataKey: llm_input_token
       type: InputToken

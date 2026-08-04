@@ -135,6 +135,10 @@ See [case_gamma/README.md](./case_gamma/README.md) for details.
 | NextChat frontend | [frontend/nextchat/](./frontend/nextchat/) | α β |
 | socat forwarder (443→30080) | root: `hetzner-cp-node-socat.sh` | α β |
 
+### Trooper AI firewall
+
+Trooper AI has an external firewall in front of GPU nodes. For WireGuard to connect, you must open **outbound UDP 51820** to the CP node's public IP in the Trooper AI dashboard. See [wireguard/README.md](./wireguard/README.md#external-firewall-trooper-ai-gpu-node) for details.
+
 ---
 
 ## Case Ω (omega) — Multi-Model on RunPod (with llm-d)

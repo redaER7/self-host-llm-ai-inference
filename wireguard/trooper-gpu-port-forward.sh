@@ -28,13 +28,3 @@ sudo systemctl start ufw
 sudo ufw enable
 sudo ufw allow from 10.10.0.0/24 to any port 8472 proto udp
 sudo ufw allow 22/tcp
-
-
-# redirect envoy gateway port 30080 to 43650
-#sudo iptables -t nat -A PREROUTING -p tcp --dport 43650 -j REDIRECT --to-port 30080
-#sudo iptables -t nat -L PREROUTING -n | grep 43650
-
-
-#disable reverse path filtering
-#sudo sysctl -w net.ipv4.conf.all.rp_filter=1
-#sudo sysctl -w net.ipv4.conf.wg0.rp_filter=1

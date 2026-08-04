@@ -61,10 +61,17 @@ Client
 SSH into the GPU node and run:
 
 ```bash
+# First time: install mig-parted + create systemd service
+bash case_gamma/mig/configure-mig.sh --profiles 2g.10gb,3g.20gb --install
+
+# Subsequent (after reboot): MIG auto-restores via systemd
+# Manual re-apply only if needed:
 bash case_gamma/mig/configure-mig.sh --profiles 2g.10gb,3g.20gb
 ```
 
-This reconfigures the A100 from full GPU into two MIG instances. The node will cordon and become available with the new topology.
+The `--install` flag:
+- Creates a systemd service (`nvidia-mig-config.service`) that restores MIG partitions on boot
+- Partitions are recreated using `nvidia-smi mig -cgi` after `nvidia-persistenced` starts
 
 ### 2. Deploy gamma resources
 
@@ -161,6 +168,37 @@ kubectl get endpoints -n gamma
 
 vLLM downloads the full model from HuggingFace on cold start. Expect 2-5 min for 7B, 5-10 min for 14B depending on network.
 
+## MIG Persistence Across Reboots
+
+On A100 (Ampere), MIG mode itself persists across reboots (stored in GPU InfoROM), but the individual MIG partitions (instances) do NOT. After each reboot, the partitions must be recreated.
+
+This setup uses a systemd service to handle this automatically:
+
+| Component | Path | Purpose |
+|-----------|------|---------|
+| Systemd service | `/etc/systemd/system/nvidia-mig-config.service` | Restores partitions at boot |
+| Script | `case_gamma/mig/configure-mig.sh` | Installs and configures everything |
+
+### How it works
+
+1. On boot, systemd starts `nvidia-mig-config.service` (after `nvidia-persistenced`)
+2. The service runs `nvidia-smi mig -cgi` to recreate the partitions
+3. MIG partitions are restored before K3s agent starts registering resources
+
+### Manual operations
+
+```bash
+# Check current MIG status
+nvidia-smi -L
+
+# Re-apply MIG config (e.g., after driver update)
+sudo nvidia-smi mig -dci 2>/dev/null; sudo nvidia-smi mig -dgi 2>/dev/null
+sudo nvidia-smi mig -cgi 2g.10gb,3g.20gb -C
+
+# Disable the systemd service
+sudo systemctl disable nvidia-mig-config.service
+```
+
 ## Files
 
 ```
@@ -180,6 +218,12 @@ case_gamma/
 │   ├── llm-inferenceservice-qwen7b.yaml                   # LLMInferenceService for 7B
 │   └── llm-inferenceservice-qwen14b.yaml                  # LLMInferenceService for 14B
 └── mig/
-    ├── configure-mig.sh                   # MIG profile setup script
+    ├── configure-mig.sh                   # MIG setup script + systemd installer
     └── device-plugin-config.yaml          # NVIDIA MIG device plugin configmap
+```
+
+### On GPU node (after --install)
+
+```
+/etc/systemd/system/nvidia-mig-config.service  # Boot-time MIG restore
 ```

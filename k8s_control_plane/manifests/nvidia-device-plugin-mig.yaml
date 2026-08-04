@@ -1,5 +1,6 @@
 # NVIDIA GPU device plugin DaemonSet
-# For cases alpha/beta (non-MIG GPUs).
+# For case gamma (MIG-enabled A100 GPUs).
+# Requires privileged mode for NVML to query MIG device memory.
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
@@ -29,14 +30,39 @@ spec:
               value: all
             - name: NVIDIA_DRIVER_CAPABILITIES
               value: compute,utility
+            - name: CONFIG_FILE
+              value: /etc/nvidia-device-plugin/config.yaml
           securityContext:
-            allowPrivilegeEscalation: false
-            capabilities:
-              drop: ["ALL"]
+            privileged: true
           volumeMounts:
             - name: device-plugin
               mountPath: /var/lib/kubelet/device-plugins
+            - name: device-plugin-config
+              mountPath: /etc/nvidia-device-plugin
+              readOnly: true
+            - name: nvidia-caps
+              mountPath: /dev/nvidia-caps
+            - name: nvidia-dev
+              mountPath: /dev/nvidia0
+            - name: nvidia-uvm
+              mountPath: /dev/nvidia-uvm
       volumes:
         - name: device-plugin
           hostPath:
             path: /var/lib/kubelet/device-plugins
+        - name: device-plugin-config
+          configMap:
+            name: nvidia-device-plugin-config
+            items:
+              - key: config.yaml
+                path: config.yaml
+        - name: nvidia-caps
+          hostPath:
+            path: /dev/nvidia-caps
+            type: DirectoryOrCreate
+        - name: nvidia-dev
+          hostPath:
+            path: /dev/nvidia0
+        - name: nvidia-uvm
+          hostPath:
+            path: /dev/nvidia-uvm
