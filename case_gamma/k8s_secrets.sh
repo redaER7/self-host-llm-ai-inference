@@ -19,7 +19,7 @@ kubectl create secret generic hf-token \
   --from-literal=token="${HF_TOKEN:?Set HF_TOKEN}" \
   --dry-run=client -o yaml | kubectl apply -f -
 
-echo "[2/2] Registry credentials (image pull)"
+echo "[2/3] Registry credentials (image pull)"
 kubectl create secret docker-registry registry-credentials \
   --namespace gamma \
   --docker-server="${REGISTRY_SERVER:-docker-registry.yacodata.com}" \
@@ -27,5 +27,11 @@ kubectl create secret docker-registry registry-credentials \
   --docker-password="${REGISTRY_PASSWORD:?Set REGISTRY_PASSWORD}" \
   --dry-run=client -o yaml | kubectl apply -f -
 
+echo "[3/3] Cloudflare API token (TLS certificate DNS01 challenge)"
+kubectl create secret generic cloudflare-api-token \
+  --namespace cert-manager \
+  --from-literal=api-token="${CLOUDFLARE_API_TOKEN:?Set CLOUDFLARE_API_TOKEN}" \
+  --dry-run=client -o yaml | kubectl apply -f -
+
 echo ""
-echo "All secrets created in gamma namespace."
+echo "All secrets created."

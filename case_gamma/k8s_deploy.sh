@@ -42,18 +42,18 @@ helm upgrade -i aieg-crd oci://docker.io/envoyproxy/ai-gateway-crds-helm \
   --namespace envoy-ai-gateway-system \
   --create-namespace
 
-echo "=== 4. Envoy Gateway ==="
-helm upgrade --install eg oci://docker.io/envoyproxy/gateway-helm --version v1.8.2 \
-  -n envoy-gateway-system --create-namespace \
-  -f "${SCRIPT_DIR}/envoy-ai-gateway/envoy-gateway-values.yaml"
-kubectl wait --timeout=5m -n envoy-gateway-system deployment/envoy-gateway --for=condition=Available
-
-echo "=== 5. AI Gateway Controller ==="
+echo "=== 4. AI Gateway Controller ==="
 helm upgrade -i aieg oci://docker.io/envoyproxy/ai-gateway-helm \
   --version v1.0.0 \
   --namespace envoy-ai-gateway-system \
   --create-namespace
 kubectl wait --timeout=2m -n envoy-ai-gateway-system deployment/ai-gateway-controller --for=condition=Available
+
+echo "=== 5. Envoy Gateway ==="
+helm upgrade --install eg oci://docker.io/envoyproxy/gateway-helm --version v1.8.2 \
+  -n envoy-gateway-system --create-namespace \
+  -f "${SCRIPT_DIR}/envoy-ai-gateway/envoy-gateway-values.yaml"
+kubectl wait --timeout=5m -n envoy-gateway-system deployment/envoy-gateway --for=condition=Available
 
 echo "=== 6. GatewayClass + EnvoyProxy + Gateway ==="
 kubectl apply -f "${SCRIPT_DIR}/envoy-ai-gateway/gatewayclass.yaml"
