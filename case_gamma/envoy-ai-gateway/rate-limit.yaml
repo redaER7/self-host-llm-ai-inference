@@ -4,13 +4,12 @@ apiVersion: gateway.envoyproxy.io/v1alpha1
 kind: BackendTrafficPolicy
 metadata:
   name: gamma-rate-limit-qwen7b
-  namespace: gamma
+  namespace: envoy-ai-gateway-system
 spec:
   targetRefs:
     - group: gateway.networking.k8s.io
       kind: Gateway
       name: ai-gateway
-      namespace: envoy-ai-gateway-system
   rateLimit:
     type: Local
     local:
@@ -29,13 +28,12 @@ apiVersion: gateway.envoyproxy.io/v1alpha1
 kind: BackendTrafficPolicy
 metadata:
   name: gamma-rate-limit-qwen14b
-  namespace: gamma
+  namespace: envoy-ai-gateway-system
 spec:
   targetRefs:
     - group: gateway.networking.k8s.io
       kind: Gateway
       name: ai-gateway
-      namespace: envoy-ai-gateway-system
   rateLimit:
     type: Local
     local:

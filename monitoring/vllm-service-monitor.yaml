@@ -8,7 +8,7 @@ metadata:
 spec:
   namespaceSelector:
     matchNames:
-      - beta
+      - gamma
   selector:
     matchExpressions:
       - key: serving.kserve.io/inferenceservice

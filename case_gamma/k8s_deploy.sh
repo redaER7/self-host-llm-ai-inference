@@ -75,6 +75,14 @@ kubectl apply -f "${SCRIPT_DIR}/envoy-ai-gateway/kserve-gateway.yaml"
 echo "=== 9. MIG device plugin config ==="
 kubectl apply -f "${SCRIPT_DIR}/mig/device-plugin-config.yaml"
 
+echo "=== 9a. Patch ai-gateway proxy service → NodePort 30080 ==="
+ENVOY_SVC=$(kubectl get svc -n envoy-gateway-system \
+  -l gateway.envoyproxy.io/owning-gateway-namespace=envoy-ai-gateway-system,gateway.envoyproxy.io/owning-gateway-name=ai-gateway \
+  -o jsonpath='{.items[0].metadata.name}')
+kubectl patch service "$ENVOY_SVC" -n envoy-gateway-system \
+  --type=json \
+  -p='[{"op":"replace","path":"/spec/ports/0/nodePort","value":30080}]'
+
 echo "=== 10. KServe Model Configs ==="
 kubectl apply -f "${SCRIPT_DIR}/kserve/llm-inference-service-config-model-qwen14b.yaml"
 kubectl apply -f "${SCRIPT_DIR}/kserve/llm-inference-service-config-workload-qwen14b.yaml"

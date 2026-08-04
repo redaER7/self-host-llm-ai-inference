@@ -22,7 +22,7 @@ spec:
             - name: BASE_URL
               value: "https://llm.yacodata.com"
             - name: CUSTOM_MODELS
-              value: "Qwen/Qwen2.5-32B-Instruct-AWQ"
+              value: "Qwen/Qwen2.5-7B-Instruct-AWQ,Qwen/Qwen2.5-14B-Instruct-AWQ"
             - name: CODE
               valueFrom:
                 secretKeyRef:

@@ -7,7 +7,7 @@ metadata:
     app: envoy-proxy-metrics
 spec:
   selector:
-    gateway.envoyproxy.io/owning-gateway-name: alpha-gateway
+    gateway.envoyproxy.io/owning-gateway-name: ai-gateway
   ports:
     - name: metrics
       port: 19001
