@@ -14,7 +14,7 @@ spec:
         namespaces:
           from: All
 ---
-apiVersion: aigateway.envoyproxy.io/v1alpha1
+apiVersion: aigateway.envoyproxy.io/v1beta1
 kind: AIGatewayRoute
 metadata:
   name: gamma-route
@@ -32,12 +32,6 @@ spec:
         - name: qwen7b-backend
           namespace: gamma
           kind: AIServiceBackend
-      llmRequestCosts:
-        - backend:
-            name: qwen7b-backend
-            namespace: gamma
-          inputTokenCost: 0.0001
-          outputTokenCost: 0.0001
     - matches:
         - headers:
             - name: x-ai-eg-model
@@ -46,9 +40,10 @@ spec:
         - name: qwen14b-backend
           namespace: gamma
           kind: AIServiceBackend
-      llmRequestCosts:
-        - backend:
-            name: qwen14b-backend
-            namespace: gamma
-          inputTokenCost: 0.0003
-          outputTokenCost: 0.0003
+  llmRequestCosts:
+    - metadataKey: llm_input_token
+      type: InputToken
+    - metadataKey: llm_output_token
+      type: OutputToken
+    - metadataKey: llm_total_token
+      type: TotalToken

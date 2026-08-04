@@ -96,17 +96,4 @@ sleep 10
 sudo ufw allow from 10.10.0.0/24 to any port 6443 proto tcp
 sudo ufw reload
 
-# Check the node
-kubectl get nodes -o wide
-
-# 7. Print join token
-TOKEN=$(cat /var/lib/rancher/k3s/server/node-token)
-echo ""
-echo "🎯 Join token for GPU node:"
-echo "$TOKEN"
-echo ""
-echo "👉 Copy the token and your public key (shown above) to the GPU node."
-echo "   On the GPU node, run the provided script and paste both when prompted."
-
-
 #ping -c 4 10.10.0.2
