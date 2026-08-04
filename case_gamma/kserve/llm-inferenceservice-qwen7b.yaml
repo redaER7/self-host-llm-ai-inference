@@ -1,0 +1,9 @@
+apiVersion: serving.kserve.io/v1alpha1
+kind: LLMInferenceService
+metadata:
+  name: qwen7b
+  namespace: gamma
+spec:
+  baseRefs:
+    - name: llm-inference-service-config-model-qwen7b
+    - name: llm-inference-service-config-workload-qwen7b

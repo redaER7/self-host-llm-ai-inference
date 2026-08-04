@@ -1,11 +1,11 @@
 import asyncio, aiohttp, json, random, time, statistics
 
-MODEL = "casperhansen/deepseek-r1-distill-qwen-14b-awq"
+MODEL = "Qwen/Qwen2.5-32B-Instruct-AWQ"
 URL = "https://llm.yacodata.com/v1/chat/completions"
 CONCURRENCY = 10
 TTFT_COUNT = 5
 MAX_TOKENS_MIN = 300
-MAX_TOKENS_MAX = 2000
+MAX_TOKENS_MAX = 1500
 
 PROMPTS = [
     "Compute the Fourier transform of f(x)=e^{-⟨Ax,x⟩} for A∈C^{n×n}, Re A positive definite.",

@@ -7,9 +7,9 @@ set -euo pipefail
 # Usage:
 #   bash configure-mig.sh [--profiles 1g.10gb,3g.40gb] [--reset]
 #
-# Default profiles: 1g.10gb (Qwen 2.5 7B) + 3g.40gb (Llama 3 70B)
+# Default profiles: 2g.10gb (Qwen 2.5 7B) + 3g.20gb (Qwen 2.5 14B)
 
-PROFILES="1g.10gb,3g.40gb"
+PROFILES="2g.10gb,3g.20gb"
 RESET=false
 
 while [[ $# -gt 0 ]]; do

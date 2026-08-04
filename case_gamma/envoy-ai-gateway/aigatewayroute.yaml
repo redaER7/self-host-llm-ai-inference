@@ -1,38 +1,54 @@
+---
 apiVersion: gateway.networking.k8s.io/v1
-kind: HTTPRoute
+kind: Gateway
 metadata:
-  name: gamma-routes
+  name: ai-gateway
+  namespace: envoy-ai-gateway-system
+spec:
+  gatewayClassName: envoy-ai-gateway
+  listeners:
+    - name: http
+      protocol: HTTP
+      port: 80
+      allowedRoutes:
+        namespaces:
+          from: All
+---
+apiVersion: aigateway.envoyproxy.io/v1alpha1
+kind: AIGatewayRoute
+metadata:
+  name: gamma-route
   namespace: gamma
-  labels:
-    ai-gateway: "true"
 spec:
   parentRefs:
     - name: ai-gateway
       namespace: envoy-ai-gateway-system
-  hostnames:
-    - "*"
   rules:
     - matches:
-        - path:
-            type: PathPrefix
-            value: /v1/
-          headers:
-            - type: Exact
-              name: x-ai-eg-model
-              value: qwen2.5-7b
+        - headers:
+            - name: x-ai-eg-model
+              value: "Qwen/Qwen2.5-7B-Instruct-AWQ"
       backendRefs:
-        - name: qwen-llm
+        - name: qwen7b-backend
           namespace: gamma
-          port: 8080
+          kind: AIServiceBackend
+      llmRequestCosts:
+        - backend:
+            name: qwen7b-backend
+            namespace: gamma
+          inputTokenCost: 0.0001
+          outputTokenCost: 0.0001
     - matches:
-        - path:
-            type: PathPrefix
-            value: /v1/
-          headers:
-            - type: Exact
-              name: x-ai-eg-model
-              value: llama3-70b
+        - headers:
+            - name: x-ai-eg-model
+              value: "Qwen/Qwen2.5-14B-Instruct-AWQ"
       backendRefs:
-        - name: llama-llm
+        - name: qwen14b-backend
           namespace: gamma
-          port: 8080
+          kind: AIServiceBackend
+      llmRequestCosts:
+        - backend:
+            name: qwen14b-backend
+            namespace: gamma
+          inputTokenCost: 0.0003
+          outputTokenCost: 0.0003

@@ -1,0 +1,24 @@
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: Backend
+metadata:
+  name: qwen7b-inferencepool-backend
+  namespace: gamma
+spec:
+  endpoints:
+    - fqdn:
+        hostname: qwen7b-kserve-workload-svc.gamma.svc.cluster.local
+        port: 8000
+---
+apiVersion: aigateway.envoyproxy.io/v1beta1
+kind: AIServiceBackend
+metadata:
+  name: qwen7b-backend
+  namespace: gamma
+spec:
+  backendRef:
+    group: gateway.envoyproxy.io
+    kind: Backend
+    name: qwen7b-inferencepool-backend
+  schema:
+    name: OpenAI
+    version: v1
