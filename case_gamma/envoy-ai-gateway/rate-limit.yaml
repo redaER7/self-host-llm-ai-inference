@@ -20,7 +20,7 @@ spec:
                   type: Exact
                   value: "Qwen/Qwen2.5-7B-Instruct-AWQ"
           limit:
-            requests: 50
+            requests: 60
             unit: Minute
 ---
 # Per-model request rate limit (Qwen 14B — slower, standard limit)
@@ -44,5 +44,5 @@ spec:
                   type: Exact
                   value: "Qwen/Qwen2.5-14B-Instruct-AWQ"
           limit:
-            requests: 30
+            requests: 40
             unit: Minute

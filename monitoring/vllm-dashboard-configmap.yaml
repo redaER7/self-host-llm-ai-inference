@@ -317,7 +317,7 @@ data:
                         "kind": "DataQuery",
                         "spec": {
                           "editorMode": "code",
-                          "expr": "histogram_quantile(0.95, rate(vllm:time_per_output_token_seconds_bucket{model_name=~\"$model\"}[5m]))",
+                          "expr": "histogram_quantile(0.95, sum(rate(vllm:request_time_per_output_token_seconds_bucket{model_name=~\"$model\"}[5m])) by (le, model_name))",
                           "legendFormat": "{{model_name}} p95",
                           "range": true
                         },

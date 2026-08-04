@@ -12,6 +12,9 @@ spec:
     - name: metrics
       port: 19001
       targetPort: 19001
+    - name: aigw-admin
+      port: 1064
+      targetPort: 1064
 ---
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
