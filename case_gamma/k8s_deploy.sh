@@ -1,10 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Deploy gamma-specific resources (multi-model MIG setup on A100 40GB).
-# Assumes cluster infrastructure (Envoy Gateway, KServe, etc.) is already
-# installed via case_beta/k8s_deploy.sh.
-# Run AFTER k8s_secrets.sh from case_beta (or create secrets manually).
+# Deploy all resources for case_gamma (multi-model MIG setup on A100 40GB).
+# Includes full cluster infrastructure + gamma-specific LLM resources.
+# Run AFTER k8s_secrets.sh.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -26,28 +25,78 @@ fi
 echo "=== 1. Namespace ==="
 kubectl create namespace gamma --dry-run=client -o yaml | kubectl apply -f -
 
-echo "=== 2. MIG device plugin config ==="
+echo "=== 2. cert-manager ==="
+helm repo add jetstack https://charts.jetstack.io --force-update
+helm upgrade --install cert-manager jetstack/cert-manager \
+  --namespace cert-manager --create-namespace \
+  --version v1.18.0 \
+  --set crds.enabled=true
+
+echo "Creating TLS certificates (llm.yacodata.com, chat.yacodata.com)"
+kubectl apply -f "${SCRIPT_DIR}/envoy-ai-gateway/certificate.yaml"
+kubectl wait --timeout=5m -n envoy-ai-gateway-system certificate/envoy-tls-cert --for=condition=Ready
+
+echo "=== 3. AI Gateway CRDs ==="
+helm upgrade -i aieg-crd oci://docker.io/envoyproxy/ai-gateway-crds-helm \
+  --version v1.0.0 \
+  --namespace envoy-ai-gateway-system \
+  --create-namespace
+
+echo "=== 4. Envoy Gateway ==="
+helm upgrade --install eg oci://docker.io/envoyproxy/gateway-helm --version v1.8.2 \
+  -n envoy-gateway-system --create-namespace \
+  -f "${SCRIPT_DIR}/envoy-ai-gateway/envoy-gateway-values.yaml"
+kubectl wait --timeout=5m -n envoy-gateway-system deployment/envoy-gateway --for=condition=Available
+
+echo "=== 5. AI Gateway Controller ==="
+helm upgrade -i aieg oci://docker.io/envoyproxy/ai-gateway-helm \
+  --version v1.0.0 \
+  --namespace envoy-ai-gateway-system \
+  --create-namespace
+kubectl wait --timeout=2m -n envoy-ai-gateway-system deployment/ai-gateway-controller --for=condition=Available
+
+echo "=== 6. GatewayClass + EnvoyProxy + Gateway ==="
+kubectl apply -f "${SCRIPT_DIR}/envoy-ai-gateway/gatewayclass.yaml"
+kubectl apply -f "${SCRIPT_DIR}/envoy-ai-gateway/envoyproxy.yaml"
+kubectl apply -f "${SCRIPT_DIR}/envoy-ai-gateway/gateway.yaml"
+
+echo "=== 7. Enable InferencePool support + restart ==="
+helm upgrade --install eg oci://docker.io/envoyproxy/gateway-helm --version v1.8.2 \
+  -n envoy-gateway-system \
+  -f "${SCRIPT_DIR}/envoy-ai-gateway/envoy-gateway-values.yaml" \
+  -f "${SCRIPT_DIR}/envoy-ai-gateway/envoy-gateway-values-addon.yaml"
+kubectl rollout restart -n envoy-gateway-system deployment/envoy-gateway
+kubectl wait --timeout=2m -n envoy-gateway-system deployment/envoy-gateway --for=condition=Available
+
+echo "=== 8. Re-apply Gateways (after KServe CRDs) ==="
+kubectl apply -f "${SCRIPT_DIR}/envoy-ai-gateway/gateway.yaml"
+kubectl apply -f "${SCRIPT_DIR}/envoy-ai-gateway/kserve-gateway.yaml"
+
+echo "=== 9. MIG device plugin config ==="
 kubectl apply -f "${SCRIPT_DIR}/mig/device-plugin-config.yaml"
 
-echo "=== 3. KServe Model Configs ==="
+echo "=== 10. KServe Model Configs ==="
 kubectl apply -f "${SCRIPT_DIR}/kserve/llm-inference-service-config-model-qwen14b.yaml"
 kubectl apply -f "${SCRIPT_DIR}/kserve/llm-inference-service-config-workload-qwen14b.yaml"
 kubectl apply -f "${SCRIPT_DIR}/kserve/llm-inference-service-config-model-qwen7b.yaml"
 kubectl apply -f "${SCRIPT_DIR}/kserve/llm-inference-service-config-workload-qwen7b.yaml"
 
-echo "=== 4. KServe LLMInferenceServices ==="
+echo "=== 11. KServe LLMInferenceServices ==="
 kubectl apply -f "${SCRIPT_DIR}/kserve/llm-inferenceservice-qwen14b.yaml"
 kubectl apply -f "${SCRIPT_DIR}/kserve/llm-inferenceservice-qwen7b.yaml"
 
-echo "=== 5. Envoy AI Gateway Backends ==="
+echo "=== 12. Envoy AI Gateway Backends ==="
 kubectl apply -f "${SCRIPT_DIR}/envoy-ai-gateway/backend-qwen14b.yaml"
 kubectl apply -f "${SCRIPT_DIR}/envoy-ai-gateway/backend-qwen7b.yaml"
 
-echo "=== 6. AIGatewayRoute ==="
+echo "=== 13. AIGatewayRoute ==="
 kubectl apply -f "${SCRIPT_DIR}/envoy-ai-gateway/aigatewayroute.yaml"
 
-echo "=== 7. Rate Limiting ==="
+echo "=== 14. Rate Limiting ==="
 kubectl apply -f "${SCRIPT_DIR}/envoy-ai-gateway/rate-limit.yaml"
+
+echo "=== 15. CORS policy ==="
+kubectl apply -f "${SCRIPT_DIR}/envoy-ai-gateway/cors-policy.yaml"
 
 echo ""
 echo "Gamma resources deployed."
