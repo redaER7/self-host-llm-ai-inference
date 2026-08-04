@@ -31,17 +31,18 @@ fi
 GPU_COUNT=$(nvidia-smi --query-gpu=name --format=csv,noheader | wc -l)
 echo "Found $GPU_COUNT GPU(s)"
 
-# --- Reset existing MIG partitions if requested ---
-if [[ "$RESET" == "true" ]]; then
-  echo "Resetting all MIG partitions..."
-  nvidia-smi mig -dci 2>/dev/null || true
-  nvidia-smi mig -dgi 2>/dev/null || true
-fi
+# --- Always destroy existing instances before creating new ones ---
+echo "Destroying existing MIG instances (if any)..."
+nvidia-smi mig -dci 2>/dev/null || true
+nvidia-smi mig -dgi 2>/dev/null || true
 
-# --- Apply MIG configuration ---
+# --- Apply MIG configuration (one profile at a time) ---
 echo "Creating MIG partitions: ${PROFILES}"
 IFS=',' read -ra PROFILES_ARRAY <<< "$PROFILES"
-nvidia-smi mig -cgi "${PROFILES_ARRAY[*]}" -C
+for profile in "${PROFILES_ARRAY[@]}"; do
+  echo "  Creating ${profile}..."
+  nvidia-smi mig -cgi "${profile}" -C
+done
 
 echo "Verifying MIG configuration"
 nvidia-smi -L
@@ -57,7 +58,7 @@ After=nvidia-persistenced.service
 
 [Service]
 Type=oneshot
-ExecStart=/bin/bash -c 'nvidia-smi mig -dci 2>/dev/null; nvidia-smi mig -dgi 2>/dev/null; nvidia-smi mig -cgi ${PROFILES} -C'
+ExecStart=/bin/bash -c 'nvidia-smi mig -dci 2>/dev/null; nvidia-smi mig -dgi 2>/dev/null; for p in $(echo ${PROFILES} | tr "," " "); do nvidia-smi mig -cgi \$p -C; done'
 RemainAfterExit=yes
 
 [Install]

@@ -1,0 +1,34 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: ai-gateway-extproc-metrics
+  namespace: envoy-ai-gateway-system
+  labels:
+    app: ai-gateway-extproc-metrics
+spec:
+  selector:
+    app.kubernetes.io/name: envoy
+    app.kubernetes.io/managed-by: envoy-gateway
+  ports:
+    - name: aigw-admin
+      port: 1064
+      targetPort: 1064
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: ai-gateway-monitor
+  namespace: monitoring
+  labels:
+    release: kube-prometheus-stack
+spec:
+  namespaceSelector:
+    matchNames:
+      - envoy-ai-gateway-system
+  selector:
+    matchLabels:
+      app: ai-gateway-extproc-metrics
+  endpoints:
+    - port: aigw-admin
+      path: /metrics
+      interval: 15s
