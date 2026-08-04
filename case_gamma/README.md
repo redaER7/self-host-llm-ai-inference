@@ -14,7 +14,7 @@ Models are downloaded at runtime from HuggingFace — no baked images required.
 ## Architecture
 
 ```
-Client (opencode)
+Client
   │
   ▼
 ┌──────────────────────────────────────────────┐
