@@ -106,6 +106,34 @@ kubectl apply -f "${SCRIPT_DIR}/envoy-ai-gateway/rate-limit.yaml"
 echo "=== 15. CORS policy ==="
 kubectl apply -f "${SCRIPT_DIR}/envoy-ai-gateway/cors-policy.yaml"
 
+echo "=== 16. kube-prometheus-stack (Prometheus + Grafana) ==="
+helm repo add prometheus-community https://prometheus-community.github.io/helm-charts --force-update
+helm upgrade --install kube-prometheus-stack prometheus-community/kube-prometheus-stack \
+  --namespace monitoring --create-namespace \
+  -f "${SCRIPT_DIR}/../monitoring/kube-prometheus-stack-values.yaml"
+kubectl wait --timeout=3m -n monitoring pod -l app.kubernetes.io/instance=kube-prometheus-stack --for=condition=Ready 2>/dev/null
+kubectl wait --for=condition=Established crd/servicemonitors.monitoring.coreos.com --timeout=60s
+
+echo "=== 17. ServiceMonitors ==="
+kubectl apply -f "${SCRIPT_DIR}/../monitoring/vllm-service-monitor.yaml"
+kubectl apply -f "${SCRIPT_DIR}/../monitoring/envoy-proxy-service-monitor.yaml"
+kubectl apply -f "${SCRIPT_DIR}/../monitoring/ai-gateway-service-monitor.yaml"
+
+echo "=== 18. DCGM Exporter (GPU metrics) ==="
+helm repo add gpu-helm-charts https://nvidia.github.io/dcgm-exporter/helm-charts --force-update
+helm upgrade --install dcgm-exporter gpu-helm-charts/dcgm-exporter \
+  --namespace monitoring \
+  --set serviceMonitor.enabled=true \
+  --set serviceMonitor.namespace=monitoring \
+  --set serviceMonitor.labels.release=kube-prometheus-stack
+kubectl wait --timeout=2m -n monitoring pod -l app.kubernetes.io/name=dcgm-exporter --for=condition=Ready 2>/dev/null || true
+
+echo "=== 19. Grafana dashboards ==="
+kubectl apply -f "${SCRIPT_DIR}/../monitoring/vllm-dashboard-configmap.yaml"
+kubectl apply -f "${SCRIPT_DIR}/../monitoring/envoy-gateway-dashboard-configmap.yaml"
+kubectl apply -f "${SCRIPT_DIR}/../monitoring/dcgm-nvidia-dashboard-configmap.yaml"
+kubectl apply -f "${SCRIPT_DIR}/../monitoring/ai-gateway-dashboard-configmap.yaml"
+
 echo ""
 echo "Gamma resources deployed."
 echo ""
