@@ -75,7 +75,7 @@ sleep 5
 systemctl status k3s --no-pager | head -10
 
 # Ensure CP node uses public IPv4 address
-PUBLIC_IP=89.167.109.193
+PUBLIC_IP="${CP_PUBLIC_IP:-<CP_PUBLIC_IP>}"
 echo "Public IP: $PUBLIC_IP"
 
 # Update config with correct external IP

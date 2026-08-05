@@ -15,7 +15,7 @@ ssh root@<hetzner-ip>
 bash k3s-install.sh
 ```
 
-This outputs `K3S_URL` and `K3S_TOKEN` — use those to bootstrap Vast.ai GPU workers.
+This outputs `K3S_URL` and `K3S_TOKEN` — use those to bootstrap GPU workers.
 
 ### 3. Open firewall ports
 
@@ -46,4 +46,4 @@ bash apply-gpu-manifests.sh
 |------|---------|
 | `k3s-install.sh` | Installs K3s v1.33 on the Hetzner node (disables Traefik, ServiceLB) |
 | `apply-gpu-manifests.sh` | Applies NVIDIA device plugin DaemonSet |
-| `manifests/nvidia-device-plugin.yaml` | DaemonSet that registers GPUs on Vast.ai nodes |
+| `manifests/nvidia-device-plugin.yaml` | DaemonSet that registers GPUs on GPU node|

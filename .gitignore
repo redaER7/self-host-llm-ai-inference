@@ -15,6 +15,10 @@ Thumbs.db
 *.key
 kubeconfig*
 
+# logs
+*.txt
+*.log
+
 # Docker
 .docker/
 
@@ -24,3 +28,7 @@ kubeconfig*
 # Temp
 tmp/
 *.tmp
+
+# Media
+*.mov
+*.mp4

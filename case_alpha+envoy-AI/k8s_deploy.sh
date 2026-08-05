@@ -71,8 +71,8 @@ echo "=== 13. CORS policy ==="
 kubectl apply -f "${SCRIPT_DIR}/envoy-ai-gateway/cors-policy.yaml"
 
 echo "=== 14. Deploy NextChat (HTTP only, TLS at Envoy) ==="
-kubectl apply -f "${SCRIPT_DIR}/frontend/nextchat/deployment.yaml"
-kubectl apply -f "${SCRIPT_DIR}/frontend/nextchat/service.yaml"
+kubectl apply -f "${SCRIPT_DIR}/../frontend/nextchat/deployment.yaml"
+kubectl apply -f "${SCRIPT_DIR}/../frontend/nextchat/service.yaml"
 kubectl apply -f "${SCRIPT_DIR}/envoy-ai-gateway/httproute-nextchat.yaml"
 
 echo "=== 15. socat forwarder 443 → 30080 (run once) ==="
@@ -94,7 +94,7 @@ echo "=== 18. ServiceMonitors (Prometheus scrape configs) ==="
 kubectl apply -f "${SCRIPT_DIR}/../monitoring/vllm-service-monitor.yaml"
 kubectl apply -f "${SCRIPT_DIR}/../monitoring/envoy-proxy-service-monitor.yaml"
 
-echo "=== 18. DCGM Exporter (GPU metrics on GPU node) ==="
+echo "=== 19. DCGM Exporter (GPU metrics on GPU node) ==="
 helm repo add gpu-helm-charts https://nvidia.github.io/dcgm-exporter/helm-charts --force-update
 helm upgrade --install dcgm-exporter gpu-helm-charts/dcgm-exporter \
   --namespace monitoring \

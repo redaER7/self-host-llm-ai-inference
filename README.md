@@ -1,20 +1,60 @@
 # Self-Host LLM AI Inference
 
-Self-host large language model inference on rented GPUs using Kubernetes, KServe, vLLM, and llm-d. Control plane on Hetzner Cloud, GPU workers on Vast.ai and RunPod.
+Self-host large language model inference on rented GPUs using Kubernetes, KServe, vLLM, and llm-d. Control plane on Hetzner Cloud, GPU workers on Trooper AI and RunPod.
 
-**Tags**: `k3s` `vllm` `envoy-gateway` `hetzner` `trooper-ai` `vast-ai` `wireguard` `gpu-inference` `self-hosted-llm`
+**Tags**: `k3s` `vllm` `envoy-gateway` `hetzner` `trooper-ai` `wireguard` `gpu-inference` `self-hosted-llm`
 
-We use **Vast.ai** on-demand instances for GPU workers — they allow quick deploy and delete cycles, fitting our need for ephemeral GPU capacity. For a comparison of GPU rental options across providers, see [How to Rent Affordable GPU for AI Inference](https://yacodata.com/en/blog/how-to-rent-affordable-gpu-for-ai-inference).
+We use **Trooper AI** on-demand GPU instances for GPU workers — they allow quick deploy and delete cycles, fitting our need for ephemeral GPU capacity. For a comparison of GPU rental options across providers, see [How to Rent Affordable GPU for AI Inference](https://yacodata.com/en/blog/how-to-rent-affordable-gpu-for-ai-inference).
 
 ---
 
 ## Table of Contents
 
+- [Deployment](#deployment)
 - [Cases Overview](#cases-overview)
 - [Case α (alpha) — Minimal Single Model](#case-α-alpha--minimal-single-model)
+- [Case α+AI (alpha+envoy-AI) — Minimal + AI Gateway](#case-αai-alphaenvoy-ai--minimal--ai-gateway)
 - [Case β (beta) — Single Model, Improved (with llm-d)](#case-β-beta--single-model-improved-with-llm-d)
-- [Case γ (gamma) — Multi-Model Binpacking (with llm-d)](#case-γ-gamma--multi-model-binpacking-with-llm-d)
+- [Case γ (gamma) — Multi-Model MIG Binpacking](#case-γ-gamma--multi-model-mig-binpacking)
 - [Case Ω (omega) — Multi-Model on RunPod (with llm-d)](#case-ω-omega--multi-model-on-runpod-with-llm-d)
+
+---
+
+## Deployment
+
+Cluster setup is shared across all cases. Run these steps once before deploying any case:
+
+### 1. Create the K3s control plane
+
+```bash
+bash k8s_control_plane/k3s-install.sh
+```
+
+Installs K3s on the Hetzner control-plane node. See [k8s_control_plane/](./k8s_control_plane/).
+
+### 2. Activate the WireGuard tunnel
+
+```bash
+# On the control-plane node
+bash wireguard/cp-wireguard-setup.sh
+
+# On the GPU node
+bash wireguard/gpu-wireguard-setup.sh
+```
+
+Bridges the Hetzner CP and the GPU provider network (subnet `10.10.0.0/24`). See [wireguard/](./wireguard/).
+
+### 3. Join the GPU node
+
+```bash
+export K3S_URL=https://<cp-public-ip>:6443
+export K3S_TOKEN=<node-token>
+bash gpu_providers/gpu-node-bootstrap.sh
+```
+
+Installs the K3s agent, NVIDIA container runtime, and device plugin on the GPU worker. See [gpu_providers/](./gpu_providers/).
+
+After these steps, pick a case below and follow its Quick Start.
 
 ---
 
@@ -23,8 +63,9 @@ We use **Vast.ai** on-demand instances for GPU workers — they allow quick depl
 | Case | Name | Gateway | LLM Stack | GPU Provider | Models |
 |------|------|---------|-----------|-------------|--------|
 | **α** | alpha | Envoy Gateway (plain) | vLLM (direct) | Trooper AI | Qwen 2.5-3B |
-| **β** | beta | Envoy AI Gateway | KServe + vLLM + llm-d | Vast.ai | Qwen 2.5-7B |
-| **γ** | gamma | Envoy AI Gateway | KServe + vLLM + llm-d | Vast.ai (MIG) | Qwen 7B + Llama 3 70B |
+| **α+AI** | alpha+envoy-AI | Envoy AI Gateway | vLLM (direct) | Trooper AI | DeepSeek-R1-Distill-Qwen-14B |
+| **β** | beta | Envoy AI Gateway | KServe + vLLM + llm-d | Trooper AI (RTX 3090) | Qwen 2.5-32B |
+| **γ** | gamma | Envoy AI Gateway | KServe + vLLM + llm-d | Trooper AI (A100 40GB, MIG) | Qwen 2.5-7B + Qwen 2.5-14B |
 | **Ω** | omega | Envoy AI Gateway | KServe + vLLM + llm-d | RunPod | Qwen 7B + DeepSeek 33B + Llama 3 70B |
 
 See [Plan.md](./Plan.md) for full architecture details.
@@ -56,16 +97,6 @@ Browser ──https──→ llm.yacodata.com / chat.yacodata.com (443)
 | WireGuard | Hetzner ↔ Trooper AI | Native WG, subnet 10.10.0.0/24 |
 | Port 443 | socat systemd service | `TCP-LISTEN:443 → TCP:127.0.0.1:30080` |
 
-### What alpha does NOT include
-
-- KServe (no CRDs, no InferenceService)
-- llm-d (no router, no EPP scheduler)
-- Envoy AI Gateway (no token metering, no rate limiting)
-- Scale-to-zero (pod runs 24/7)
-- MIG or GPU sharing
-- Multi-model serving
-- Baked model image (downloads from HF at startup)
-
 ### When to use alpha
 
 - First deployment: learn the K3s + Trooper AI bootstrap workflow
@@ -93,21 +124,43 @@ See [case_alpha/README.md](./case_alpha/README.md) for full details.
 
 ---
 
-## Case β (beta) — Single Model, All on GPU Node
+## Case α+AI (alpha+envoy-AI) — Minimal + AI Gateway
 
-Envoy AI Gateway → KServe + llm-d + EPP → vLLM on Vast.ai RTX 3090. All components co-located on the GPU node — no cross-node networking, no WireGuard tunnel. Includes TLS (Let's Encrypt via Cloudflare), CORS for NextChat frontend, and Envoy Gateway as the single routing layer.
+Same as case_alpha but replaces plain Envoy Gateway HTTPRoute routing with Envoy AI Gateway, adding token metering (input/output/total) and CORS for the NextChat frontend. Runs DeepSeek-R1-Distill-Qwen-14B on the GPU node.
 
 ```
-Client → envoy-llm.yacodata.com:30080 (HTTPS)
+Browser ──https──→ llm.yacodata.com / chat.yacodata.com (443)
+                       │
+                  socat (CP host, 443 → 30080)
+                       │
+                  Envoy Gateway proxy (CP, NodePort 30080)
+                       │
+              AI Gateway Controller — ext-proc
+                       │
+              AIGatewayRoute (token metering)
+                       │
+                   vLLM (GPU node)
+```
+
+See [case_alpha+envoy-AI/README.md](./case_alpha+envoy-AI/README.md) for full deployment.
+
+---
+
+## Case β (beta) — Single Model, All on GPU Node
+
+Envoy AI Gateway → KServe + llm-d + EPP → vLLM on Trooper AI RTX 3090. Control plane on Hetzner CX33, GPU worker on Trooper AI. Cross-node pod networking via Flannel VXLAN over a WireGuard tunnel. Includes TLS (Let's Encrypt via Cloudflare), CORS for NextChat frontend, token metering, and rate limiting.
+
+```
+Client → llm.yacodata.com:443 (HTTPS)
            ↓
          Envoy Gateway proxy (GPU node, hostNetwork)
            ↓
          Envoy AI Gateway (InferencePool, token metering, rate limiting)
            ↓
-         KServe LLMInferenceService "qwen-7b"
+         KServe LLMInferenceService "qwen-32b"
            ├── llm-d Router (cache-aware)
            ├── EPP Scheduler (prefix-cache + load-aware)
-           └── vLLM (Qwen/Qwen2.5-7B-Instruct, same node)
+           └── vLLM (Qwen/Qwen2.5-32B-Instruct-AWQ, GPU node)
 ```
 
 **Frontend**: [NextChat](https://github.com/chatgptnextweb/nextchat) served from CP node at `chat.yacodata.com`, calls Envoy Gateway directly from the browser (CORS configured via SecurityPolicy).
@@ -116,9 +169,9 @@ See [case_beta/README.md](./case_beta/README.md) for full deployment.
 
 ---
 
-## Case γ (gamma) — Multi-Model Binpacking (with llm-d)
+## Case γ (gamma) — Multi-Model MIG Binpacking
 
-Two models (Qwen 2.5 7B + Llama 3 70B) on a single A100 80GB via MIG partitioning. Each model gets its own KServe + llm-d + EPP stack pinned to a dedicated MIG partition.
+Two models (Qwen 2.5 7B + Qwen 2.5 14B) on a single A100 40GB via MIG partitioning. Each model gets its own KServe LLMInferenceService pinned to a dedicated MIG partition.
 
 See [case_gamma/README.md](./case_gamma/README.md) for details.
 
@@ -131,9 +184,9 @@ See [case_gamma/README.md](./case_gamma/README.md) for details.
 | K3s control plane | [k8s_control_plane/](./k8s_control_plane/) | α β γ Ω |
 | GPU provider bootstrap | [gpu_providers/](./gpu_providers/) | α β γ Ω |
 | Model image builder | [model-image/](./model-image/) | α β γ Ω |
-| Monitoring (Prometheus + Grafana + DCGM) | [monitoring/](./monitoring/) | β γ Ω |
+| Monitoring (Prometheus + Grafana + DCGM) | [monitoring/](./monitoring/) | α+AI β γ Ω |
 | NextChat frontend | [frontend/nextchat/](./frontend/nextchat/) | α β |
-| socat forwarder (443→30080) | root: `hetzner-cp-node-socat.sh` | α β |
+| socat forwarder (443→30080) | root: `hetzner-cp-node-socat.sh` | α β γ |
 
 ### Trooper AI firewall
 

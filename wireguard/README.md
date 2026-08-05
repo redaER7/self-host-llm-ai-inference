@@ -1,13 +1,13 @@
 # WireGuard Setup
 
-Shared WireGuard setup scripts for connecting a Hetzner CP node to one or more remote GPU nodes (Vast.ai / Trooper AI).
+Shared WireGuard setup scripts for connecting a Hetzner CP node to one or more remote GPU nodes (e.g. Trooper AI).
 
 ## How it works
 
 Flannel VXLAN (UDP 8472) is used for pod-to-pod networking across nodes. Both K3s server and agent must set `--flannel-iface=wg0` so VXLAN packets are sent through the WireGuard tunnel.
 
 ```
-CP node (Hetzner)                GPU node (Vast.ai / Trooper)
+CP node (Hetzner)                GPU node (Trooper AI)
 ┌────────────────────┐          ┌──────────────────────────┐
 │ wg0 (10.10.0.1) ───┼─ tunnel ─┼──→ wg0 (10.10.0.2)      │
 │ K3s server         │ UDP 51820│   K3s agent              │
@@ -140,7 +140,7 @@ Trooper AI has an external firewall in front of the GPU node. These rules must b
 
 | Port | Protocol | Destination | Direction | Purpose |
 |------|----------|-------------|-----------|---------|
-| 51820 | UDP | 169.58.97.237 | Outbound | WireGuard handshake/keepalive to CP |
+| 51820 | UDP | <GPU_NODE_IP> | Outbound | WireGuard handshake/keepalive to CP |
 
 
 ## Files
