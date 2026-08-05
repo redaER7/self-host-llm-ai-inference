@@ -25,6 +25,16 @@ PROMPTS = [
     "Using the method of characteristics, solve the PDE: u_x + x u_y = 0 with u(0, y) = y².",
     "Let f(x)=∑_{n=1}^{∞} sin(nx)/n². Determine if f is continuous, differentiable, and compute its Fourier series.",
     "Prove using the intermediate value property that every continuous function on a closed bounded interval attains its maximum and minimum.",
+    "Write a Python function that finds all prime factorizations of a given integer and returns them as a dictionary {factor: exponent}.",
+    "Design a distributed rate limiter using a sliding window algorithm. Describe the data structures, API, and trade-offs for single-node vs multi-node deployment.",
+    "Compute the surface area of the portion of the paraboloid z = x² + y² that lies inside the sphere x² + y² + z² = 2.",
+    "Write the opening paragraph of a noir detective novel set in a rain-soaked megacity in 2087, where memories can be bought and sold on the black market.",
+    "Five houses in a row are painted different colors. Each owner has a different nationality, pet, drink, and car. Given these clues: The Brit lives in the red house. The Swede has dogs. The Dane drinks tea. The green house is immediately left of the white. The green house owner drinks coffee. The person with a BMW has birds. The yellow house owner drives a Volvo. The middle house owner drinks milk. The Norwegian lives in the first house. The person who drives a Honda lives next to the cat owner. The person with horses lives next to the Volvo driver. The Toyota driver drinks beer. The German drives a Mercedes. The Honda driver lives next to the blue house. The Norwegian lives next to the blue house. Determine who owns the fish.",
+    "Find and fix all bugs in this Python code: def merge_sort(arr):\\n  if len(arr) <= 1: return arr\\n  mid = len(arr) // 2\\n  left = merge_sort(arr[:mid])\\n  right = merge_sort(arr[mid:])\\n  result = []\\n  i = j = 0\\n  while i < len(left) and j < len(right):\\n    if left[i] <= right[j]:\\n      result.append(left[i])\\n    else:\\n      result.append(right[j])\\n    i += 1\\n    j += 1\\n  result += left[i:]\\n  return result",
+    "Write a step-by-step tutorial explaining how to implement a transformer attention mechanism from scratch in PyTorch, including multi-head attention, positional encoding, and layer normalization. Include code snippets.",
+    "Return a JSON object describing the top 5 most complex programming languages by feature count, with fields: name, year_created, paradigms (array), typing_system, notable_feature.",
+    "A fair six-sided die is rolled repeatedly. What is the expected number of rolls needed to see each face at least once? Derive the exact expression and compute the numerical answer.",
+    "Given an adjacency list representation of a weighted directed graph, implement Dijkstra's algorithm in Python that returns the shortest distance from a source node to all other nodes. Handle negative edge weights by raising an appropriate error. Include test cases.",
 ]
 
 
