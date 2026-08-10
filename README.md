@@ -14,7 +14,7 @@ We use **Trooper AI** on-demand GPU instances for GPU workers — they allow qui
 - [Cases Overview](#cases-overview)
 - [Case α (alpha) — Minimal Single Model](#case-α-alpha--minimal-single-model)
 - [Case α+AI (alpha+envoy-AI) — Minimal + AI Gateway](#case-αai-alphaenvoy-ai--minimal--ai-gateway)
-- [Case β (beta) — Single Model, Improved (with llm-d)](#case-β-beta--single-model-improved-with-llm-d)
+- [Case β (beta) — Single Model (with KServe)](#case-β-beta--single-model-with-kserve)
 - [Case γ (gamma) — Multi-Model MIG Binpacking](#case-γ-gamma--multi-model-mig-binpacking)
 - [Case Ω (omega) — Multi-Model on RunPod (with llm-d)](#case-ω-omega--multi-model-on-runpod-with-llm-d)
 
@@ -64,7 +64,7 @@ After these steps, pick a case below and follow its Quick Start.
 |------|------|---------|-----------|-------------|--------|
 | **α** | alpha | Envoy Gateway (plain) | vLLM (direct) | Trooper AI | Qwen 2.5-3B |
 | **α+AI** | alpha+envoy-AI | Envoy AI Gateway | vLLM (direct) | Trooper AI | DeepSeek-R1-Distill-Qwen-14B |
-| **β** | beta | Envoy AI Gateway | KServe + vLLM + llm-d | Trooper AI (RTX 3090) | Qwen 2.5-32B |
+| **β** | beta | Envoy AI Gateway | KServe + vLLM | Trooper AI (RTX 3090) | Qwen 2.5-32B |
 | **γ** | gamma | Envoy AI Gateway | KServe + vLLM + llm-d | Trooper AI (A100 40GB, MIG) | Qwen 2.5-7B + Qwen 2.5-14B |
 | **Ω** | omega | Envoy AI Gateway | KServe + vLLM + llm-d | RunPod | Qwen 7B + DeepSeek 33B + Llama 3 70B |
 
@@ -102,7 +102,7 @@ Browser ──https──→ llm.yacodata.com / chat.yacodata.com (443)
 - First deployment: learn the K3s + Trooper AI bootstrap workflow
 - Minimal stack: Envoy Gateway + vLLM + NextChat
 - Test public HTTPS inference before adding complexity
-- Baseline to compare against beta (KServe + llm-d improvements)
+- Baseline to compare against beta (KServe lifecycle management)
 
 ### Quick Start
 
@@ -146,20 +146,18 @@ See [case_alpha+envoy-AI/README.md](./case_alpha+envoy-AI/README.md) for full de
 
 ---
 
-## Case β (beta) — Single Model, All on GPU Node
+## Case β (beta) — Single Model (with KServe)
 
-Envoy AI Gateway → KServe + llm-d + EPP → vLLM on Trooper AI RTX 3090. Control plane on Hetzner CX33, GPU worker on Trooper AI. Cross-node pod networking via Flannel VXLAN over a WireGuard tunnel. Includes TLS (Let's Encrypt via Cloudflare), CORS for NextChat frontend, token metering, and rate limiting.
+Envoy AI Gateway → KServe → vLLM on Trooper AI RTX 3090. Control plane on Hetzner CX33, GPU worker on Trooper AI. Cross-node pod networking via Flannel VXLAN over a WireGuard tunnel. Includes TLS (Let's Encrypt via Cloudflare), CORS for NextChat frontend, token metering, and rate limiting.
 
 ```
 Client → llm.yacodata.com:443 (HTTPS)
            ↓
-         Envoy Gateway proxy (GPU node, hostNetwork)
+         Envoy Gateway proxy (CP node)
            ↓
          Envoy AI Gateway (InferencePool, token metering, rate limiting)
            ↓
          KServe LLMInferenceService "qwen-32b"
-           ├── llm-d Router (cache-aware)
-           ├── EPP Scheduler (prefix-cache + load-aware)
            └── vLLM (Qwen/Qwen2.5-32B-Instruct-AWQ, GPU node)
 ```
 

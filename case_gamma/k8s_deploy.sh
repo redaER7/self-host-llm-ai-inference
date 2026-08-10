@@ -89,6 +89,9 @@ kubectl apply -f "${SCRIPT_DIR}/kserve/llm-inference-service-config-workload-qwe
 kubectl apply -f "${SCRIPT_DIR}/kserve/llm-inference-service-config-model-qwen7b.yaml"
 kubectl apply -f "${SCRIPT_DIR}/kserve/llm-inference-service-config-workload-qwen7b.yaml"
 
+echo "=== 10a. EPP Endpoint Picker Config ==="
+kubectl apply -f "${SCRIPT_DIR}/kserve/endpoint-picker-config.yaml"
+
 echo "=== 11. KServe LLMInferenceServices ==="
 kubectl apply -f "${SCRIPT_DIR}/kserve/llm-inferenceservice-qwen14b.yaml"
 kubectl apply -f "${SCRIPT_DIR}/kserve/llm-inferenceservice-qwen7b.yaml"

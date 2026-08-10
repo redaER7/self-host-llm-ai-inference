@@ -1,6 +1,8 @@
-# Case β (beta) — Single Model with Envoy AI Gateway + KServe + llm-d + EPP
+# Case β (beta) — Single Model with Envoy AI Gateway + KServe
 
-Envoy AI Gateway → KServe LLMInferenceService → llm-d (EPP scheduler) → vLLM (Qwen 2.5 32B Instruct AWQ). Control plane on Hetzner CX33, GPU worker on Trooper AI (RTX 3090). Cross-node pod networking via Flannel VXLAN over WireGuard.
+Envoy AI Gateway → KServe LLMInferenceService → vLLM (Qwen 2.5 32B Instruct AWQ). Control plane on Hetzner CX33, GPU worker on Trooper AI (RTX 3090). Cross-node pod networking via Flannel VXLAN over WireGuard.
+
+llm-d is installed by KServe as the router image (via built-in LLMInferenceServiceConfigs) and routes requests to the vLLM worker. With a single replica the EPP scheduler is a pass-through — custom scorer weights (prefix-cache + load-aware) are defined in `kserve/endpoint-picker-config.yaml` but not wired into the LLMInferenceService. Uncomment the `router.scheduler.endpointPickerConfig` block in `kserve/llm-inferenceservice.yaml` when scaling to 2+ replicas.
 
 ## Architecture
 
@@ -22,18 +24,15 @@ Client → https://llm.yacodata.com:443
            │
            ▼
           Backend → InferencePool "llm-server-inference-pool"
-           │         (gateway-api-inference-extension)
-           ▼
-         KServe internal gateway (kserve namespace, ClusterIP :80)
-           │
-           ▼
-         llm-d router (EPP scheduler)
-           ├── prefix-cache-scorer (weight 2.0)
-           ├── load-aware-scorer (weight 1.0, threshold 50)
-           └── max-score-picker
-           │
-           ▼
-          vLLM pod (GPU node, hostNetwork, 10.10.0.2:8000)
+            │         (gateway-api-inference-extension)
+            ▼
+          KServe internal gateway (kserve namespace, ClusterIP :80)
+            │
+            ▼
+          KServe workload service
+            │
+            ▼
+           vLLM pod (GPU node, hostNetwork, 10.10.0.2:8000)
             ├── model: Qwen/Qwen2.5-32B-Instruct-AWQ
             ├── quantization: awq
             ├── max-model-len: 8192
@@ -41,7 +40,7 @@ Client → https://llm.yacodata.com:443
             └── gpu-memory-utilization: 0.90
 ```
 
-The AI Gateway proxy (Envoy), KServe controller, and llm-d (EPP scheduler) run on the **control-plane node** (Hetzner). The vLLM pod runs on the **GPU node** (Trooper AI) with `hostNetwork: true`, binding directly to `10.10.0.2:8000`. Cross-node traffic flows over Flannel VXLAN (`UDP 8472`) through a WireGuard tunnel (`10.10.0.0/24`).
+The AI Gateway proxy (Envoy) and KServe controller run on the **control-plane node** (Hetzner). The vLLM pod runs on the **GPU node** (Trooper AI) with `hostNetwork: true`, binding directly to `10.10.0.2:8000`. Cross-node traffic flows over Flannel VXLAN (`UDP 8472`) through a WireGuard tunnel (`10.10.0.0/24`).
 
 TLS termination happens at the Envoy Gateway proxy (cert-manager + Let's Encrypt DNS-01 via Cloudflare).
 
@@ -52,7 +51,7 @@ TLS termination happens at the Envoy Gateway proxy (cert-manager + Let's Encrypt
 | **Model-based routing** | AI Gateway Controller via `x-ai-eg-model` header |
 | **Token metering** | AIGatewayRoute `llmRequestCosts` (input/output/total) |
 | **Rate limiting** | BackendTrafficPolicy (30 req/min) |
-| **EPP scheduling** | KServe endpoint picker (prefix-cache + load-aware) |
+| **EPP scheduling** | KServe endpoint picker — default config (custom scorer weights available, see `endpoint-picker-config.yaml`) |
 | **InferencePool** | Gateway API Inference Extension CRD |
 | **CORS** | SecurityPolicy for NextChat origins |
 | **TLS** | cert-manager + Let's Encrypt DNS-01 via Cloudflare |
@@ -63,8 +62,8 @@ TLS termination happens at the Envoy Gateway proxy (cert-manager + Let's Encrypt
 |---------|-----|
 | **Production routing** | Envoy AI Gateway with token metering, rate limiting, model-based routing |
 | **KServe lifecycle** | LLMInferenceService manages deployment, service, InferencePool, HTTPRoute automatically |
-| **Cache-aware routing** | EPP scheduler routes to pods with warm KV cache (prefix-cache-scorer) |
-| **Load-aware routing** | EPP distributes across healthy pods (load-aware-scorer) |
+| **Prefetch-cache-aware routing** | EPP scorer config available (`endpoint-picker-config.yaml`); wire via `router.scheduler` in LLMInferenceService to activate when scaling to 2+ replicas |
+| **Load-aware routing** | EPP scorer config available (same ConfigMap); activate when scaling to 2+ replicas |
 | **Simple model updates** | Change model in config, redeploy — weights download at startup |
 | **Single entry point** | Envoy Gateway NodePort on `llm.yacodata.com` |
 
@@ -237,7 +236,7 @@ You should see replies (~31ms for Hetzner ↔ Trooper AI).
 | `kserve/llm-inference-service-config-model.yaml` | Model source (HF repo + model name) |
 | `kserve/llm-inference-service-config-workload.yaml` | Workload config (vLLM image, args, resources, GPU scheduling) |
 | `kserve/llm-inferenceservice.yaml` | LLMInferenceService (combines model + workload) |
-| `kserve/endpoint-picker-config.yaml` | EPP scheduler scorer weights |
+| `kserve/endpoint-picker-config.yaml` | EPP scheduler scorer weights (available but not wired; see `llm-inferenceservice.yaml` commented block) |
 | `epp-scheduler/` | EPP scorer weights reference |
 
 ---
@@ -262,12 +261,12 @@ bash k8s_deploy.sh
 
 ## Key Differences from Plain Deployment
 
-| Aspect | Plain Deployment (alpha+envoy-AI) | KServe + llm-d (beta) |
+| Aspect | Plain Deployment (alpha+envoy-AI) | KServe (beta) |
 |--------|----------------|----------------------|
 | Model lifecycle | Manual Deployment | LLMInferenceService CRD |
-| Routing | Manual Service/HTTPRoute | InferencePool + EPP scheduler |
-| Cache-aware routing | None | EPP prefix-cache-scorer (weight 2.0) |
-| Load-aware routing | None | EPP load-aware-scorer (weight 1.0, threshold 50) |
+| Routing | Manual Service/HTTPRoute | InferencePool (via Gateway API Inference Extension) |
+| Cache-aware routing | None | Available (EPP config created, wire in LLMInferenceService to activate) |
+| Load-aware routing | None | Available (same as above) |
 | Token metering | Enabled | Enabled |
 | Rate limiting | None | 30 req/min |
 | Model updates | Edit Deployment YAML | Edit LLMInferenceServiceConfig |

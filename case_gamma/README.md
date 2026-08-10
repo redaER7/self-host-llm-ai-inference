@@ -234,7 +234,7 @@ sudo systemctl disable nvidia-mig-config.service
 - Baked model images (downloads from HF at startup)
 - Scale-to-zero (pods run 24/7)
 - RunPod provider (see omega)
-- LeaderWorkerSet / EPP scheduler (uses plain vLLM without llm-d routing)
+- Multi-replica scaling (each model runs 1 replica; EPP configured via `endpoint-picker-config.yaml` for future scaling)
 
 ## When to use gamma
 

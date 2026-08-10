@@ -7,10 +7,3 @@ spec:
   baseRefs:
     - name: llm-inference-service-config-model
     - name: llm-inference-service-config-workload
-# Wires the custom EndpointPickerConfig to the llm-d EPP Scheduler
-#  router:
-#    scheduler:
-#      endpointPickerConfig:
-#        configMapRef:
-#          name: custom-endpoint-picker-config
-#          key: endpoint-picker-config.yaml

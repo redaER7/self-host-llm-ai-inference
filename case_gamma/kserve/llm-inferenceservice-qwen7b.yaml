@@ -7,3 +7,9 @@ spec:
   baseRefs:
     - name: llm-inference-service-config-model-qwen7b
     - name: llm-inference-service-config-workload-qwen7b
+  router:
+    scheduler:
+      endpointPickerConfig:
+        configMapRef:
+          name: custom-endpoint-picker-config
+          key: endpoint-picker-config.yaml
