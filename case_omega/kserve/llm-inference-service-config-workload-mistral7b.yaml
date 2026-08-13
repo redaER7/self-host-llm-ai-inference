@@ -1,0 +1,80 @@
+apiVersion: serving.kserve.io/v1alpha1
+kind: LLMInferenceServiceConfig
+metadata:
+  name: llm-inference-service-config-workload-mistral7b
+  namespace: omega
+spec:
+  replicas: 1
+  template:
+    nodeSelector:
+      node-role.kubernetes.io/gpu-node: "true"
+      gpu-type: "rtx-pro-4000-blackwell"
+    tolerations:
+      - key: "gpu-node"
+        operator: "Equal"
+        value: "true"
+        effect: "NoSchedule"
+    imagePullSecrets:
+      - name: registry-credentials
+    containers:
+      - name: main
+        image: vllm/vllm-openai:latest
+        command:
+          - python3
+          - -m
+          - vllm.entrypoints.openai.api_server
+        args:
+          - --model
+          - mistralai/Mistral-7B-Instruct-v0.3
+          - --port
+          - "8000"
+          - --host
+          - "0.0.0.0"
+          - --dtype
+          - auto
+          - --tensor-parallel-size
+          - "1"
+          - --max-model-len
+          - "8192"
+          - --max-num-seqs
+          - "8"
+          - --gpu-memory-utilization
+          - "0.85"
+          - --download-dir
+          - /mnt/huggingface/models
+          - --enable-prefix-caching
+          - --enable-auto-tool-choice
+          - --tool-call-parser
+          - hermes
+        env:
+          - name: HF_TOKEN
+            valueFrom:
+              secretKeyRef:
+                name: hf-token
+                key: token
+          - name: PYTHONUNBUFFERED
+            value: "1"
+        volumeMounts:
+          - name: dshm
+            mountPath: /dev/shm
+          - name: model-cache
+            mountPath: /mnt/huggingface/models
+        resources:
+          limits:
+            nvidia.com/gpu: "1"
+            memory: 20Gi
+          requests:
+            nvidia.com/gpu: "1"
+            memory: 16Gi
+        securityContext:
+          runAsNonRoot: false
+          capabilities:
+            drop:
+              - ALL
+    volumes:
+      - name: dshm
+        emptyDir:
+          medium: Memory
+          sizeLimit: 2Gi
+      - name: model-cache
+        emptyDir: {}

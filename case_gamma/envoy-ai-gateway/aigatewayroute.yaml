@@ -1,38 +1,29 @@
-apiVersion: gateway.networking.k8s.io/v1
-kind: HTTPRoute
+apiVersion: aigateway.envoyproxy.io/v1beta1
+kind: AIGatewayRoute
 metadata:
-  name: gamma-routes
+  name: gamma-route
   namespace: gamma
-  labels:
-    ai-gateway: "true"
 spec:
   parentRefs:
     - name: ai-gateway
       namespace: envoy-ai-gateway-system
-  hostnames:
-    - "*"
   rules:
     - matches:
-        - path:
-            type: PathPrefix
-            value: /v1/
-          headers:
-            - type: Exact
-              name: x-ai-eg-model
-              value: qwen2.5-7b
+        - headers:
+            - name: x-ai-eg-model
+              value: "Qwen/Qwen2.5-7B-Instruct-AWQ"
       backendRefs:
-        - name: qwen-llm
-          namespace: gamma
-          port: 8080
+        - name: qwen7b-backend
     - matches:
-        - path:
-            type: PathPrefix
-            value: /v1/
-          headers:
-            - type: Exact
-              name: x-ai-eg-model
-              value: llama3-70b
+        - headers:
+            - name: x-ai-eg-model
+              value: "Qwen/Qwen2.5-14B-Instruct-AWQ"
       backendRefs:
-        - name: llama-llm
-          namespace: gamma
-          port: 8080
+        - name: qwen14b-backend
+  llmRequestCosts:
+    - metadataKey: llm_input_token
+      type: InputToken
+    - metadataKey: llm_output_token
+      type: OutputToken
+    - metadataKey: llm_total_token
+      type: TotalToken

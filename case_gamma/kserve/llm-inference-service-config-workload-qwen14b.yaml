@@ -1,0 +1,81 @@
+apiVersion: serving.kserve.io/v1alpha1
+kind: LLMInferenceServiceConfig
+metadata:
+  name: llm-inference-service-config-workload-qwen14b
+  namespace: gamma
+spec:
+  replicas: 1
+  template:
+    nodeSelector:
+      node-role.kubernetes.io/gpu-node: "true"
+    tolerations:
+      - key: "gpu-node"
+        operator: "Equal"
+        value: "true"
+        effect: "NoSchedule"
+    imagePullSecrets:
+      - name: registry-credentials
+    containers:
+      - name: main
+        image: vllm/vllm-openai:latest
+        command:
+          - python3
+          - -m
+          - vllm.entrypoints.openai.api_server
+        args:
+          - --model
+          - Qwen/Qwen2.5-14B-Instruct-AWQ
+          - --port
+          - "8000"
+          - --host
+          - "0.0.0.0"
+          - --dtype
+          - auto
+          - --quantization
+          - awq
+          - --tensor-parallel-size
+          - "1"
+          - --max-model-len
+          - "8192"
+          - --max-num-seqs
+          - "8"
+          - --gpu-memory-utilization
+          - "0.90"
+          - --download-dir
+          - /mnt/huggingface/models
+          - --enable-prefix-caching
+          - --enable-auto-tool-choice
+          - --tool-call-parser
+          - hermes
+        env:
+          - name: HF_TOKEN
+            valueFrom:
+              secretKeyRef:
+                name: hf-token
+                key: token
+          - name: PYTHONUNBUFFERED
+            value: "1"
+        volumeMounts:
+          - name: dshm
+            mountPath: /dev/shm
+          - name: model-cache
+            mountPath: /mnt/huggingface/models
+        resources:
+          limits:
+            nvidia.com/mig-3g.20gb: "1"
+            memory: 14Gi
+          requests:
+            nvidia.com/mig-3g.20gb: "1"
+            memory: 10Gi
+        securityContext:
+          runAsNonRoot: false
+          capabilities:
+            drop:
+              - ALL
+    volumes:
+      - name: dshm
+        emptyDir:
+          medium: Memory
+          sizeLimit: 4Gi
+      - name: model-cache
+        emptyDir: {}

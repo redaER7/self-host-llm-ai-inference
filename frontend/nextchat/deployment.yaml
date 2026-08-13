@@ -20,14 +20,19 @@ spec:
             - containerPort: 3000
           env:
             - name: BASE_URL
-              value: "https://llm.yacodata.com/v1"
+              value: "https://llm.yacodata.com"
             - name: CUSTOM_MODELS
-              value: "qwen2.5-7b"
+              value: "Qwen/Qwen2.5-7B-Instruct-AWQ,Qwen/Qwen2.5-14B-Instruct-AWQ"
+            - name: CODE
+              valueFrom:
+                secretKeyRef:
+                  name: nextchat-secret
+                  key: code
           resources:
             requests:
-              memory: 256Mi
-              cpu: 100m
+              memory: 56Mi
+              cpu: 20m
             limits:
-              memory: 512Mi
-              cpu: 500m
+              memory: 1Gi
+              cpu: 2
       volumes: []

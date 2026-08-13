@@ -1,200 +1,292 @@
-# Case γ (gamma) — Multi-Model Binpacking (with llm-d)
+# Case Gamma — Multi-Model MIG on A100 40GB (Trooper AI)
 
-Two models (Qwen 2.5 7B + Llama 3 70B) on a single A100 80GB via MIG partitioning. Each model gets its own KServe LLMInferenceService + llm-d + EPP stack, pinned to a dedicated MIG partition.
+## Overview
+
+Single NVIDIA A100 40GB GPU (Trooper AI) split via MIG (Multi-Instance GPU) into two slices:
+
+| MIG Profile | VRAM | Model | Quantization |
+|-------------|------|-------|--------------|
+| `2g.10gb` | ~10 GB | Qwen 2.5 7B Instruct | AWQ |
+| `3g.20gb` | ~20 GB | Qwen 2.5 14B Instruct | AWQ |
+
+Models are downloaded at runtime from HuggingFace — no baked images required.
 
 ## Architecture
 
 ```
-Client → Envoy AI Gateway
-           ├── /v1/ + model: qwen2.5-7b   → KServe "qwen-llm"  → vLLM (MIG 1g.10gb)
-           └── /v1/ + model: llama3-70b    → KServe "llama-llm" → vLLM (MIG 3g.40gb)
-                                                  │
-                                           Vast.ai A100 80GB (MIG partitioned)
+Client
+  │
+  ▼
+┌──────────────────────────────────────────────┐
+│  Envoy AI Gateway (llm.yacodata.com)        │
+│  Header: x-ai-eg-model                      │
+│  Rate Limits: 7B=60/min, 14B=40/min         │
+└──────────┬──────────────────┬────────────────┘
+           │                  │
+    ┌──────▼──────┐    ┌──────▼──────┐
+    │ AISvcBacknd │    │ AISvcBacknd │
+    │ qwen7b      │    │ qwen14b     │
+    └──────┬──────┘    └──────┬──────┘
+           │                  │
+    ┌──────▼──────┐    ┌──────▼──────┐
+    │ KServe CR   │    │ KServe CR   │
+    │ qwen-7b     │    │ qwen-14b    │
+    └──────┬──────┘    └──────┬──────┘
+           │                  │
+    ┌──────▼──────┐    ┌──────▼──────┐
+    │ vLLM Pod    │    │ vLLM Pod    │
+    │ (2g.10gb)   │    │ (3g.20gb)   │
+    │ 8080        │    │ 8081        │
+    └─────────────┘    └─────────────┘
+           │                  │
+    ┌──────▼──────────────────▼──────┐
+    │  A100 40GB (MIG-enabled)      │
+    │  ├─ 2g.10gb instance          │
+    │  └─ 3g.20gb instance          │
+    └────────────────────────────────┘
 ```
 
-### MIG Layout
+## Prerequisites
 
+- K3s cluster with a MIG-capable GPU node (single A100 40GB on Trooper AI)
+- KServe installed on the cluster (shared cluster component)
+- NVIDIA GPU operator / device plugin configured for MIG
+- [k8s_secrets.sh](k8s_secrets.sh) run first (registry credentials, HF token, Cloudflare API token)
+
+Everything else — cert-manager, Envoy AI Gateway, KServe model config, monitoring, dashboards — is installed by [k8s_deploy.sh](k8s_deploy.sh) itself.
+
+## Quick Start
+
+```bash
+# 1. Set secrets as environment variables
+export CLOUDFLARE_API_TOKEN="your-cloudflare-token"
+export REGISTRY_USERNAME="your-registry-user"
+export REGISTRY_PASSWORD="your-registry-password"
+export HF_TOKEN="your-hf-token"
+
+# 2. Create all secrets
+bash k8s_secrets.sh
+
+# 3. Deploy everything (run from the repo root)
+bash case_gamma/k8s_deploy.sh
 ```
-A100 80GB
-┌──────────────────────────────────────────────────┐
-│ ┌─────────────────┐  ┌──────────────────────────┐ │
-│ │ MIG 1g.10gb     │  │ MIG 3g.40gb             │ │
-│ │ Qwen 2.5 7B AWQ │  │ Llama 3 70B AWQ         │ │
-│ │ ~4 GB used      │  │ ~40 GB used             │ │
-│ │ 6 GB KV cache   │  │ 24 GB KV cache          │ │
-│ └─────────────────┘  └──────────────────────────┘ │
-│ Remaining: ~30 GB (system, NCCL, buffers)         │
-└──────────────────────────────────────────────────┘
+
+## MIG Setup
+
+Configure MIG on the GPU node before deploying:
+
+```bash
+# First time: install mig config and systemd service
+bash case_gamma/mig/configure-mig.sh --profiles 2g.10gb,3g.20gb --install
+
+# Subsequent (after reboot): MIG auto-restores via systemd
+# Manual re-apply only if needed:
+bash case_gamma/mig/configure-mig.sh --profiles 2g.10gb,3g.20gb
 ```
 
-## Requirements
-
-### Kubernetes Cluster
-
-Same as beta — see [case_beta/README.md](../case_beta/README.md#requirements).
-
-### GPU (Vast.ai)
-
-| GPU | VRAM | Why |
-|-----|------|-----|
-| **A100 80GB** | 80 GB | Required for MIG partitioning; supports 1g.10gb + 3g.40gb simultaneously |
-
-### MIG Partitions
-
-| Model | Partition | VRAM Allocated | VRAM Used | KV Cache Headroom |
-|-------|-----------|---------------|-----------|-------------------|
-| Qwen 2.5 7B | `1g.10gb` | 10 GB | ~4 GB | ~6 GB |
-| Llama 3 70B | `3g.40gb` | 40 GB | ~40 GB | Shared system |
-| System / NCA | — | ~30 GB | — | GPU context, scheduler |
-
-### Model Images
-
-Both models are baked into separate Docker images (hot start). See [model-image/README.md](./model-image/README.md) for build commands.
-
-### Software
-
-Same as beta — see [case_beta/README.md](../case_beta/README.md#software-additional-components-over-alpha).
-
----
+The `--install` flag:
+- Creates a systemd service (`nvidia-mig-config.service`) that restores MIG partitions on boot
+- Partitions are recreated using `nvidia-smi mig -cgi` after `nvidia-persistenced` starts
 
 ## Install Order
 
-1. **K3s** — single-node on Hetzner
-2. **cert-manager** + **Gateway API CRDs** + **GIE CRDs** + **Envoy Gateway** + **Envoy AI Gateway** + **LWS** + **KServe** — same as beta (steps 2–8)
-3. **Monitoring** — Prometheus + Grafana + DCGM (shared stack, see [monitoring/](../monitoring/))
-4. **Rent A100 on Vast.ai** — join as K3s agent with `MIG_PROFILES=1g.10gb,3g.40gb`
-5. **Apply MIG device plugin config** — `migStrategy: mixed`
-6. **Build both model images** — Qwen + Llama baked Docker images
-7. **Deploy LLMInferenceServiceConfig** + **both LLMInferenceServices**
-8. **Apply Envoy AI Gateway config** — 2 InferencePools + 2 InferenceModels + HTTPRoute
+Deployment is fully automated by [k8s_deploy.sh](k8s_deploy.sh) (run after [k8s_secrets.sh](k8s_secrets.sh)). The steps below mirror the script so you know what runs and in what order:
 
----
+0. **MIG pre-check** — verifies the MIG device plugin config exists
+1. **Namespace** — creates `gamma`
+2. **cert-manager + TLS certs** — webhook certificates + `envoy-tls-cert` / `chat-tls-cert` (Let's Encrypt DNS-01 via Cloudflare)
+3. **AI Gateway CRDs (Helm)** — AIGatewayRoute CRDs
+4. **AI Gateway Controller (Helm)** — AI routing, token metering
+5. **Envoy Gateway (Helm)** — Gateway API provider
+6. **GatewayClass + EnvoyProxy + Gateway** — HTTPS listeners referencing the cert-manager certificates
+7. **Enable InferencePool + restart** — apply EG addon values + rollout restart
+8. **Re-apply Gateways + KServe ingress gateway** — after KServe CRDs are present
+9. **MIG device plugin config** — NVIDIA device plugin ConfigMap
+10. **Patch Envoy proxy service → NodePort 30080** — expose `ai-gateway` externally
+11. **KServe model configs** — model + workload LLMInferenceServiceConfigs for 7B and 14B
+12. **KServe LLMInferenceServices** — 7B and 14B
+13. **Envoy AI Gateway backends** — Backend + AIServiceBackend for 7B and 14B
+14. **AIGatewayRoute** — header match routes models via `x-ai-eg-model`
+15. **Rate limiting** — BackendTrafficPolicy (7B=60 req/min, 14B=40 req/min)
+16. **CORS policy** — allow NextChat origin to call Envoy Gateway
+17. **kube-prometheus-stack** — Prometheus + Grafana + node_exporter (monitoring namespace)
+18. **ServiceMonitors** — scrape vLLM, Envoy proxy, AI Gateway metrics
+19. **DCGM Exporter** — GPU metrics on GPU node (with ServiceMonitor)
+20. **Grafana dashboards** — vLLM, Envoy Gateway, DCGM, AI Gateway ConfigMaps (auto-imported)
 
-## Contents
-
-| File / Dir | Purpose |
-|------------|---------|
-| `mig/configure-mig.sh` | Creates MIG partitions on A100 via `nvidia-smi mig` |
-| `mig/device-plugin-config.yaml` | ConfigMap for `migStrategy: mixed` |
-| `envoy-ai-gateway/` | 2 InferencePools + 2 InferenceModels + HTTPRoute |
-| `kserve/` | LLMInferenceServiceConfig + 2 LLMInferenceServices |
-| `model-image/` | Build instructions for both model images |
-
----
-
-## Deployment
-
-### 1. Prerequisites
-
-- K3s cluster running (see [k8s_control_plane](../k8s_control_plane/))
-- KServe + Envoy AI Gateway installed (same as beta)
-- Monitoring stack installed (see [monitoring/README.md](../monitoring/README.md))
-
-### 2. Install monitoring stack (if not already installed)
-
-Installed once per cluster — shared by alpha and beta cases.
+## Verify
 
 ```bash
-kubectl create namespace monitoring
-helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
-helm upgrade --install kube-prometheus-stack prometheus-community/kube-prometheus-stack \
-  --namespace monitoring \
-  -f ../monitoring/kube-prometheus-stack-values.yaml
-kubectl apply -f ../monitoring/dcgm-exporter.yaml
+# Check pods
+kubectl get pods -n gamma -w
+
+# Check LLMInferenceServices
+kubectl get llminferenceservices -n gamma
+
+# Check backends
+kubectl get backends -n gamma
+
+# Check route
+kubectl get aigatewayroute -n gamma
 ```
 
-See [monitoring/README.md](../monitoring/README.md) for dashboard setup and Grafana access.
+## Testing
 
-### 3. Rent an A100 on Vast.ai
-
-Find an A100 80GB instance with MIG-capable drivers.
+### Qwen 2.5 7B
 
 ```bash
-export K3S_URL=https://<control-plane-ip>:6443
-export K3S_TOKEN=<node-token>
-export MIG_PROFILES=1g.10gb,3g.40gb
-bash gpu_providers/vast-ai-bootstrap.sh
-```
-
-The bootstrap script now creates MIG partitions automatically when `MIG_PROFILES` is set.
-
-### 4. Apply MIG device plugin config
-
-```bash
-kubectl apply -f mig/device-plugin-config.yaml
-```
-
-The device plugin detects MIG partitions and exposes them as `nvidia.com/mig-1g.10gb` and `nvidia.com/mig-3g.40gb` resources.
-
-### 5. Build model images
-
-```bash
-# Qwen 2.5 7B
-bash ../model-image/build.sh \
-  --base quay.io/kserve/vllm:latest \
-  --model Qwen/Qwen2.5-7B-Instruct-AWQ \
-  --tag qwen-with-weights:latest
-
-# Llama 3 70B (requires HF token for gated model)
-bash ../model-image/build.sh \
-  --base quay.io/kserve/vllm:latest \
-  --model meta-llama/Llama-3-70B-Instruct-AWQ \
-  --tag llama-with-weights:latest
-```
-
-### 6. Create namespace and deploy KServe config
-
-```bash
-kubectl create namespace gamma
-kubectl apply -f kserve/llm-inferenceservice-config.yaml
-```
-
-### 7. Deploy both models
-
-```bash
-kubectl apply -f kserve/llm-inferenceservice-qwen.yaml
-kubectl apply -f kserve/llm-inferenceservice-llama.yaml
-```
-
-### 8. Apply Envoy AI Gateway config
-
-```bash
-kubectl apply -f envoy-ai-gateway/
-```
-
-### 9. Test
-
-```bash
-GATEWAY_IP=<control-plane-ip>
-
-# Qwen
-curl -X POST http://$GATEWAY_IP/v1/chat/completions \
+curl -X POST https://llm.yacodata.com/v1/chat/completions \
   -H "Content-Type: application/json" \
-  -d '{"model": "qwen2.5-7b", "messages": [{"role": "user", "content": "Hello"}]}'
-
-# Llama
-curl -X POST http://$GATEWAY_IP/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -d '{"model": "llama3-70b", "messages": [{"role": "user", "content": "Hello"}]}'
+  -H "x-ai-eg-model: Qwen/Qwen2.5-7B-Instruct-AWQ" \
+  -d '{
+    "model": "Qwen/Qwen2.5-7B-Instruct-AWQ",
+    "messages": [{"role": "user", "content": "hello"}],
+    "max_tokens": 50
+  }'
 ```
 
----
+### Qwen 2.5 14B
 
-## MIG Caveats
+```bash
+curl -X POST https://llm.yacodata.com/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "x-ai-eg-model: Qwen/Qwen2.5-14B-Instruct-AWQ" \
+  -d '{
+    "model": "Qwen/Qwen2.5-14B-Instruct-AWQ",
+    "messages": [{"role": "user", "content": "hello"}],
+    "max_tokens": 50
+  }'
+```
 
-- Partition sizes are **static** — requires node reboot + re-creation to change
-- Only A100/H100 GPUs support MIG (not RTX)
-- Some Vast.ai providers may not expose MIG-capable drivers — look for "verified" hosts with CUDA 12.x
-- Each MIG partition runs its own vLLM + llm-d EPP process
-- Memory limits in the pod spec should match the MIG partition to avoid OOM
+### Tool calling (Qwen 14B)
+
+```bash
+curl -X POST https://llm.yacodata.com/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "x-ai-eg-model: Qwen/Qwen2.5-14B-Instruct-AWQ" \
+  -d '{
+    "model": "Qwen/Qwen2.5-14B-Instruct-AWQ",
+    "messages": [{"role": "user", "content": "What is the weather in Paris?"}],
+    "tools": [{"type": "function", "function": {"name": "get_weather", "parameters": {"type": "object", "properties": {"city": {"type": "string"}}, "required": ["city"]}}}],
+    "max_tokens": 100
+  }'
+```
+
+## Troubleshooting
+
+### Pod stuck in Pending
+
+```bash
+kubectl describe llminferenceservice qwen-7b -n gamma
+```
+
+Check if MIG profiles are active:
+```bash
+nvidia-smi --query-gpu=gpu_bus_id,mig.mode.current --format=csv
+```
+
+### 502 Bad Gateway
+
+Check if the backend is reachable:
+```bash
+kubectl get svc -n gamma
+kubectl get endpoints -n gamma
+```
+
+### Model download slow on first request
+
+vLLM downloads the full model from HuggingFace on cold start. Expect 2-5 min for 7B, 5-10 min for 14B depending on network.
+
+## MIG Persistence Across Reboots
+
+On A100 (Ampere), MIG mode itself persists across reboots (stored in GPU InfoROM), but the individual MIG partitions (instances) do NOT. After each reboot, the partitions must be recreated.
+
+This setup uses a systemd service to handle this automatically:
+
+| Component | Path | Purpose |
+|-----------|------|---------|
+| Systemd service | `/etc/systemd/system/nvidia-mig-config.service` | Restores partitions at boot |
+| Script | `case_gamma/mig/configure-mig.sh` | Installs and configures everything |
+
+### How it works
+
+1. On boot, systemd starts `nvidia-mig-config.service` (after `nvidia-persistenced`)
+2. The service runs `nvidia-smi mig -cgi` to recreate the partitions
+3. MIG partitions are restored before K3s agent starts registering resources
+
+### Manual operations
+
+```bash
+# Check current MIG status
+nvidia-smi -L
+
+# Re-apply MIG config (e.g., after driver update)
+sudo nvidia-smi mig -dci 2>/dev/null; sudo nvidia-smi mig -dgi 2>/dev/null
+sudo nvidia-smi mig -cgi 2g.10gb,3g.20gb -C
+
+# Disable the systemd service
+sudo systemctl disable nvidia-mig-config.service
+```
 
 ## What gamma does NOT include
 
+- Multi-node GPU deployment (single A100, partitioned via MIG)
+- Baked model images (downloads from HF at startup)
+- Scale-to-zero (pods run 24/7)
 - RunPod provider (see omega)
-- More than 2 models on one GPU (theoretically possible with more MIG profiles)
+- Multi-replica scaling (each model runs 1 replica; EPP configured via `endpoint-picker-config.yaml` for future scaling)
 
 ## When to use gamma
 
-- Two models need to share one expensive GPU
-- MIG hardware isolation is preferred over time-slicing
-- Cost efficiency is a priority (2 models, 1 GPU)
+- Multi-model serving on a single partitioned GPU (MIG) — two models on one A100 40GB
+- When models should be reachable through one public HTTPS endpoint with header-based routing
+- When per-model rate limiting is required at the gateway
+- When you want model-specific metrics and dashboards (vLLM, Envoy Gateway, DCGM, AI Gateway)
+
+## Benchmarking
+
+Run concurrent load tests against both models via the AI Gateway header-based routing:
+
+```bash
+python Tests/case_gamma_concurrent.py --concurrency 10 --min-tokens 100 --max-tokens 1200
+```
+
+See `Tests/case_gamma_concurrent.py` for full options (TTFT probes, streaming vs non-streaming, per-model latency/token throughput summaries).
+
+## Files
+
+```
+case_gamma/
+├── README.md                              # This file
+├── k8s_secrets.sh                         # Create all secrets + TLS certificates (run first)
+├── k8s_deploy.sh                          # Deploy everything (run after secrets)
+├── envoy-ai-gateway/
+│   ├── aigatewayroute.yaml                # AIGatewayRoute (model routing via x-ai-eg-model)
+│   ├── backend-qwen7b.yaml                # Backend + AIServiceBackend for 7B
+│   ├── backend-qwen14b.yaml               # Backend + AIServiceBackend for 14B
+│   ├── rate-limit.yaml                    # Per-model request rate limits
+│   ├── cors-policy.yaml                   # SecurityPolicy (CORS for NextChat origin)
+│   ├── gatewayclass.yaml                  # GatewayClass (references Envoy Gateway controller)
+│   ├── gateway.yaml                       # Gateway resource (HTTPS listener, TLS termination)
+│   ├── envoyproxy.yaml                    # EnvoyProxy (CP node scheduling, NodePort service)
+│   ├── kserve-gateway.yaml                # KServe internal Gateway (ClusterIP)
+│   ├── certificate.yaml                   # ClusterIssuer + Certificate (Let's Encrypt DNS-01)
+│   ├── envoy-gateway-values.yaml          # EG Helm values (proxy config)
+│   └── envoy-gateway-values-addon.yaml    # EG addon values (enable InferencePool)
+├── kserve/
+│   ├── llm-inference-service-config-model-qwen7b.yaml     # Model config for 7B
+│   ├── llm-inference-service-config-model-qwen14b.yaml    # Model config for 14B
+│   ├── llm-inference-service-config-workload-qwen7b.yaml  # Workload config for 7B
+│   ├── llm-inference-service-config-workload-qwen14b.yaml # Workload config for 14B
+│   ├── llm-inferenceservice-qwen7b.yaml                   # LLMInferenceService for 7B
+│   └── llm-inferenceservice-qwen14b.yaml                  # LLMInferenceService for 14B
+└── mig/
+    ├── configure-mig.sh                   # MIG setup script + systemd installer
+    └── device-plugin-config.yaml          # NVIDIA MIG device plugin configmap
+```
+
+### On GPU node (after --install)
+
+```
+/etc/systemd/system/nvidia-mig-config.service  # Boot-time MIG restore
+```

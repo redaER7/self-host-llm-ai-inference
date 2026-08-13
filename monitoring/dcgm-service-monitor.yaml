@@ -1,36 +1,20 @@
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
-  annotations:
-    meta.helm.sh/release-name: dcgm-exporter
-    meta.helm.sh/release-namespace: monitoring
-  generation: 1
-  labels:
-    app.kubernetes.io/component: dcgm-exporter
-    app.kubernetes.io/instance: dcgm-exporter
-    app.kubernetes.io/managed-by: Helm
-    app.kubernetes.io/name: dcgm-exporter
-    #app.kubernetes.io/version: 4.8.3
-    #helm.sh/chart: dcgm-exporter-4.8.3
-    release: kube-prometheus-stack
   name: dcgm-exporter
   namespace: monitoring
-  resourceVersion: "232833"
-  uid: 56cce02f-3cf7-43b1-aa82-9849a67553d0
+  labels:
+    release: kube-prometheus-stack
 spec:
   endpoints:
-  - honorLabels: false
-    interval: 30s
-    metricRelabelings: []
-    path: /metrics
-    port: metrics
-    relabelings: []
-    scrapeTimeout: 25s
+    - interval: 30s
+      path: /metrics
+      port: metrics
+      scrapeTimeout: 25s
   namespaceSelector:
     matchNames:
-    - monitoring
+      - monitoring
   selector:
     matchLabels:
       app.kubernetes.io/component: dcgm-exporter
-      app.kubernetes.io/instance: dcgm-exporter
       app.kubernetes.io/name: dcgm-exporter

@@ -8,12 +8,11 @@ metadata:
 spec:
   namespaceSelector:
     matchNames:
-      - beta
+      - gamma
   selector:
-    matchExpressions:
-      - key: serving.kserve.io/inferenceservice
-        operator: Exists
+    matchLabels:
+      app.kubernetes.io/component: llminferenceservice-workload
   endpoints:
-    - port: http-serving
+    - port: https
       path: /metrics
       interval: 15s

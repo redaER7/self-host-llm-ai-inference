@@ -35,7 +35,7 @@ echo ""
 
 # 3. Gather control‑plane details
 read -p "Enter the control‑plane public key: " CP_PUBLIC_KEY
-read -p "Enter the control‑plane public IP address (e.g. 89.167.109.193): " CP_IP
+read -p "Enter the control‑plane public IP address (e.g. <CP_PUBLIC_IP>): " CP_IP
 CP_ENDPOINT="${CP_IP}:51820"
 
 # 4. Create wg0.conf (GPU as client)

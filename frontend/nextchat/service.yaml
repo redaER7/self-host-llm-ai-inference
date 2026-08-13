@@ -4,11 +4,9 @@ metadata:
   name: nextchat
   namespace: frontend
 spec:
-  type: ClusterIP
   selector:
     app: nextchat
   ports:
-    - name: http
+    - protocol: TCP
       port: 3000
       targetPort: 3000
-      protocol: TCP

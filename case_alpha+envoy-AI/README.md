@@ -63,7 +63,7 @@ Browser ──https──→ llm.yacodata.com / chat.yacodata.com (443)
 | File / Dir | Purpose |
 |------------|---------|
 | `k8s_secrets.sh` | Namespaces + secrets (run first) |
-| `k8s_deploy.sh` | Full 16-step deployment (run second) |
+| `k8s_deploy.sh` | Full 19-step deployment (run second) |
 | `envoy-ai-gateway/envoy-gateway-values.yaml` | Helm values with extensionManager → AI Gateway controller |
 | `envoy-ai-gateway/gatewayclass.yaml` | GatewayClass `envoy` |
 | `envoy-ai-gateway/envoyproxy.yaml` | CP node scheduling, NodePort type |
@@ -73,8 +73,8 @@ Browser ──https──→ llm.yacodata.com / chat.yacodata.com (443)
 | `envoy-ai-gateway/aigatewayroute.yaml` | AIGatewayRoute with token metering (no header match) |
 | `envoy-ai-gateway/cors-policy.yaml` | SecurityPolicy (CORS for NextChat origin) |
 | `envoy-ai-gateway/httproute-nextchat.yaml` | HTTPRoute for `chat.yacodata.com` → NextChat |
-| `frontend/nextchat/deployment.yaml` | NextChat with `CUSTOM_MODELS: casperhansen/deepseek-r1-distill-qwen-14b-awq` |
-| `frontend/nextchat/service.yaml` | NextChat ClusterIP:3000 |
+| `../frontend/nextchat/deployment.yaml` | NextChat with `CUSTOM_MODELS: casperhansen/deepseek-r1-distill-qwen-14b-awq` (shared) |
+| `../frontend/nextchat/service.yaml` | NextChat ClusterIP:3000 (shared) |
 | `vllm-deployment.yaml` | vLLM Deployment + Service (DeepSeek-R1-Distill-Qwen-14B AWQ) |
 
 ## Quick Start
@@ -109,7 +109,7 @@ bash hetzner-cp-node-socat.sh
 
 ## Deployment Details
 
-The `k8s_deploy.sh` script runs 18 steps:
+The `k8s_deploy.sh` script runs 19 steps:
 
 ```
  1. Namespaces (alpha, frontend, monitoring, cert-manager, envoy-*)
@@ -128,8 +128,9 @@ The `k8s_deploy.sh` script runs 18 steps:
 14. NextChat (deployment + service + HTTPRoute)
 15. socat forwarder (443 → 30080)
 16. kube-prometheus-stack (Prometheus + Grafana + node_exporter + kube-state-metrics)
-17. ServiceMonitors (vLLM + Envoy proxy metrics scrape)
-18. DCGM Exporter (GPU metrics DaemonSet)
+17. Grafana dashboards (ConfigMaps with grafana_dashboard label)
+18. ServiceMonitors (vLLM + Envoy proxy metrics scrape)
+19. DCGM Exporter (GPU metrics DaemonSet)
 ```
 
 ## Testing
@@ -154,7 +155,7 @@ curl -k -X POST https://localhost:30080/v1/chat/completions \
 
 | Aspect | case_alpha | case_alpha+envoy-AI |
 |--------|------------|---------------------|
-| Model | Qwen 2.5 3B | **Qwen 2.5 3B** (same) |
+| Model | Qwen 2.5 3B | **DeepSeek-R1-Distill-Qwen-14B** |
 | Envoy Gateway values | Minimal (no extensions) | **extensionManager** → AI Gateway |
 | AI Gateway CRDs | ❌ | ✅ |
 | AI Gateway Controller | ❌ | ✅ |

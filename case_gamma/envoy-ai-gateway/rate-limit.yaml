@@ -1,0 +1,48 @@
+---
+# Per-model request rate limit (Qwen 7B — faster, higher limit)
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: BackendTrafficPolicy
+metadata:
+  name: gamma-rate-limit-qwen7b
+  namespace: envoy-ai-gateway-system
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: ai-gateway
+  rateLimit:
+    type: Local
+    local:
+      rules:
+        - clientSelectors:
+            - headers:
+                - name: x-ai-eg-model
+                  type: Exact
+                  value: "Qwen/Qwen2.5-7B-Instruct-AWQ"
+          limit:
+            requests: 60
+            unit: Minute
+---
+# Per-model request rate limit (Qwen 14B — slower, standard limit)
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: BackendTrafficPolicy
+metadata:
+  name: gamma-rate-limit-qwen14b
+  namespace: envoy-ai-gateway-system
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: ai-gateway
+  rateLimit:
+    type: Local
+    local:
+      rules:
+        - clientSelectors:
+            - headers:
+                - name: x-ai-eg-model
+                  type: Exact
+                  value: "Qwen/Qwen2.5-14B-Instruct-AWQ"
+          limit:
+            requests: 40
+            unit: Minute

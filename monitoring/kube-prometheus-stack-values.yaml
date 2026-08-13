@@ -28,8 +28,8 @@ prometheus:
               storage: 5Gi
     scrapeInterval: 30s
     evaluationInterval: 30s
-    nodeSelector:
-      node-role.kubernetes.io/gpu-node: "true"
+    #nodeSelector:
+    #  node-role.kubernetes.io/gpu-node: "true"
     tolerations:
       - key: "gpu-node"
         operator: "Equal"
@@ -55,8 +55,16 @@ grafana:
   service:
     type: ClusterIP
     port: 3000
-  nodeSelector:
-    node-role.kubernetes.io/gpu-node: "true"
+  #nodeSelector:
+  #  node-role.kubernetes.io/gpu-node: "true"
+  sidecar:
+    dashboards:
+      enabled: true
+      label: grafana_dashboard
+      labelValue: "1"
+      searchNamespace: ALL
+      provider:
+        allowUiUpdates: true
   tolerations:
     - key: "gpu-node"
       operator: "Equal"
@@ -74,8 +82,8 @@ alertmanager:
       cpu: 10m
       memory: 16Mi
   alertmanagerSpec:
-    nodeSelector:
-      node-role.kubernetes.io/gpu-node: "true"
+    #nodeSelector:
+    #  node-role.kubernetes.io/gpu-node: "true"
     tolerations:
       - key: "gpu-node"
         operator: "Equal"
@@ -103,8 +111,8 @@ kubeStateMetrics:
     requests:
       cpu: 10m
       memory: 16Mi
-  nodeSelector:
-    node-role.kubernetes.io/gpu-node: "true"
+  #nodeSelector:
+  #  node-role.kubernetes.io/gpu-node: "true"
   tolerations:
     - key: "gpu-node"
       operator: "Equal"

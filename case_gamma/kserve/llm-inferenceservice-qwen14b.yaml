@@ -1,0 +1,15 @@
+apiVersion: serving.kserve.io/v1alpha1
+kind: LLMInferenceService
+metadata:
+  name: qwen14b
+  namespace: gamma
+spec:
+  baseRefs:
+    - name: llm-inference-service-config-model-qwen14b
+    - name: llm-inference-service-config-workload-qwen14b
+  router:
+    scheduler:
+      endpointPickerConfig:
+        configMapRef:
+          name: custom-endpoint-picker-config
+          key: endpoint-picker-config.yaml

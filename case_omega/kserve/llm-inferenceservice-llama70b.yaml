@@ -1,0 +1,15 @@
+apiVersion: serving.kserve.io/v1alpha1
+kind: LLMInferenceService
+metadata:
+  name: llama70b
+  namespace: omega
+spec:
+  baseRefs:
+    - name: llm-inference-service-config-model-llama70b
+    - name: llm-inference-service-config-workload-llama70b
+  router:
+    scheduler:
+      endpointPickerConfig:
+        configMapRef:
+          name: custom-endpoint-picker-config
+          key: endpoint-picker-config.yaml

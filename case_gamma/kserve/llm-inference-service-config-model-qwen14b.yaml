@@ -1,0 +1,9 @@
+apiVersion: serving.kserve.io/v1alpha1
+kind: LLMInferenceServiceConfig
+metadata:
+  name: llm-inference-service-config-model-qwen14b
+  namespace: gamma
+spec:
+  model:
+    uri: hf://Qwen/Qwen2.5-14B-Instruct-AWQ
+    name: Qwen/Qwen2.5-14B-Instruct-AWQ

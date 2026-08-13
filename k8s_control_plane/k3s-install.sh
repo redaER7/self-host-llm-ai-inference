@@ -2,11 +2,6 @@
 set -euo pipefail
 
 # K3s Control Plane Installer
-# Run this on your Hetzner server to set up a single-node K3s control plane.
-#
-# Usage:
-#   ssh root@<hetzner-ip>
-#   bash k3s-install.sh
 
 INSTALL_K3S_VERSION="v1.33.2+k3s1"
 
@@ -20,7 +15,7 @@ curl -sfL https://get.k3s.io | \
     --flannel-iface=wg0
 
 echo "[2/5] Writing K3s config"
-read -rp "Enter the CP node's public IP (e.g. 89.167.109.193): " PUBLIC_IP
+read -rp "Enter the CP node's public IP (e.g. <CP_PUBLIC_IP>): " PUBLIC_IP
 sudo mkdir -p /etc/rancher/k3s
 sudo tee /etc/rancher/k3s/config.yaml > /dev/null <<EOF
 node-ip: 10.10.0.1

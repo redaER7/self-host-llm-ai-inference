@@ -1,16 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Vast.ai K3s Agent Bootstrap
-# Run this script on a fresh Vast.ai GPU instance to join your K3s cluster.
+# GPU node K3s Agent Bootstrap
+# Run this script on a fresh Trooper.ai GPU instance to join your K3s cluster.
 #
 # Usage:
 #   export K3S_URL=https://<control-plane-ip>:6443
 #   export K3S_TOKEN=<node-token>
 #
 # Optional env vars:
-#   NODE_NAME    — explicit node name (default: vast-<hostname>-<random>)
-#   MIG_PROFILES — if set, creates MIG partitions (e.g. "1g.10gb,3g.40gb")
+#   NODE_NAME    — explicit node name (default: trooper-ai-<hostname>-<random>)
 
 : "${K3S_URL:?K3S_URL is required}"
 : "${K3S_TOKEN:?K3S_TOKEN is required}"

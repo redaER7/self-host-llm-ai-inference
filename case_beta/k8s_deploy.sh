@@ -17,12 +17,10 @@ helm upgrade --install cert-manager jetstack/cert-manager \
   --set crds.enabled=true
 
 echo "Creating TLS certificate (llm.yacodata.com)"
-#kubectl apply -f "${SCRIPT_DIR}/envoy-ai-gateway/certificate.yaml"
-#kubectl wait --timeout=5m -n envoy-ai-gateway-system certificate/envoy-tls-cert --for=condition=Ready
+kubectl apply -f "${SCRIPT_DIR}/envoy-ai-gateway/certificate.yaml"
+kubectl wait --timeout=5m -n envoy-ai-gateway-system certificate/envoy-tls-cert --for=condition=Ready
 
-echo "Creating TLS certificate (chat.yacodata.com)"
-#kubectl apply -f "${SCRIPT_DIR}/../frontend/nextchat/certificate.yaml"
-#kubectl wait --timeout=5m -n frontend certificate/frontend-tls-cert --for=condition=Ready
+# Note: chat-tls-cert is also created by certificate.yaml above (same file)
 
 echo "=== 3. AI Gateway CRDs ==="
 helm upgrade -i aieg-crd oci://docker.io/envoyproxy/ai-gateway-crds-helm \
@@ -84,40 +82,71 @@ echo "=== 9. Re-apply Gateways (after KServe CRDs) ==="
 kubectl apply -f "${SCRIPT_DIR}/envoy-ai-gateway/gateway.yaml"
 kubectl apply -f "${SCRIPT_DIR}/envoy-ai-gateway/kserve-gateway.yaml"
 
-echo "=== 10. ServiceMonitors (Prometheus scrape configs) ==="
+echo "=== 9a. Patch ai-gateway proxy service → NodePort 30080 ==="
+ENVOY_SVC=$(kubectl get svc -n envoy-gateway-system \
+  -l gateway.envoyproxy.io/owning-gateway-namespace=envoy-ai-gateway-system,gateway.envoyproxy.io/owning-gateway-name=ai-gateway \
+  -o jsonpath='{.items[0].metadata.name}')
+kubectl patch service "$ENVOY_SVC" -n envoy-gateway-system \
+  --type=json \
+  -p='[{"op":"replace","path":"/spec/ports/0/nodePort","value":30080}]'
+
+echo "=== 10. kube-prometheus-stack (Prometheus + Grafana + node_exporter, provides ServiceMonitor CRDs) ==="
+helm repo add prometheus-community https://prometheus-community.github.io/helm-charts --force-update
+helm upgrade --install kube-prometheus-stack prometheus-community/kube-prometheus-stack \
+  --namespace monitoring --create-namespace \
+  -f "${SCRIPT_DIR}/../monitoring/kube-prometheus-stack-values.yaml"
+kubectl wait --timeout=3m -n monitoring pod -l app.kubernetes.io/instance=kube-prometheus-stack --for=condition=Ready 2>/dev/null
+
+echo "Waiting for ServiceMonitor CRD to be established..."
+kubectl wait --for=condition=Established crd/servicemonitors.monitoring.coreos.com --timeout=60s
+
+echo "=== 11. ServiceMonitors (Prometheus scrape configs) ==="
 kubectl apply -f "${SCRIPT_DIR}/../monitoring/vllm-service-monitor.yaml"
 kubectl apply -f "${SCRIPT_DIR}/../monitoring/envoy-proxy-service-monitor.yaml"
 
-echo "=== 11. Grafana dashboards (ConfigMaps with grafana_dashboard label) ==="
+echo "=== 12. DCGM Exporter (GPU metrics on GPU node) ==="
+helm repo add gpu-helm-charts https://nvidia.github.io/dcgm-exporter/helm-charts --force-update
+helm upgrade --install dcgm-exporter gpu-helm-charts/dcgm-exporter \
+  --namespace monitoring \
+  --set serviceMonitor.enabled=true \
+  --set serviceMonitor.namespace=monitoring \
+  --set serviceMonitor.labels.release=kube-prometheus-stack
+kubectl wait --timeout=2m -n monitoring pod -l app.kubernetes.io/name=dcgm-exporter --for=condition=Ready 2>/dev/null || true
+
+echo "=== 13. Grafana dashboards (ConfigMaps with grafana_dashboard label) ==="
 kubectl apply -f "${SCRIPT_DIR}/../monitoring/vllm-dashboard-configmap.yaml"
 kubectl apply -f "${SCRIPT_DIR}/../monitoring/envoy-gateway-dashboard-configmap.yaml"
 kubectl apply -f "${SCRIPT_DIR}/../monitoring/dcgm-nvidia-dashboard-configmap.yaml"
 
-echo "=== 12. KServe Configs ==="
+echo "=== 14. KServe Configs ==="
 kubectl apply -f "${SCRIPT_DIR}/kserve/endpoint-picker-config.yaml"
 kubectl apply -f "${SCRIPT_DIR}/kserve/llm-inference-service-config-model.yaml"
 kubectl apply -f "${SCRIPT_DIR}/kserve/llm-inference-service-config-workload.yaml"
 
-echo "=== 13. KServe LLMInferenceService ==="
+echo "=== 15. KServe LLMInferenceService ==="
 kubectl apply -f "${SCRIPT_DIR}/kserve/llm-inferenceservice.yaml"
 
-echo "=== 14. Envoy AI Gateway Backend + AIServiceBackend ==="
+echo "=== 16. Envoy AI Gateway Backend + AIServiceBackend ==="
 kubectl apply -f "${SCRIPT_DIR}/envoy-ai-gateway/backend.yaml"
 
-echo "=== 15. AIGatewayRoute ==="
+echo "=== 17. AIGatewayRoute ==="
 kubectl apply -f "${SCRIPT_DIR}/envoy-ai-gateway/aigatewayroute.yaml"
 
-echo "=== 16. Rate Limiting ==="
+echo "=== 18. Rate Limiting ==="
 kubectl apply -f "${SCRIPT_DIR}/envoy-ai-gateway/rate-limit.yaml"
 
-echo "=== 17. CORS policy ==="
+echo "=== 19. CORS policy ==="
 kubectl apply -f "${SCRIPT_DIR}/envoy-ai-gateway/cors-policy.yaml"
 
-echo "=== 18. NextChat frontend ==="
+echo "=== 20. NextChat frontend ==="
 kubectl create namespace frontend --dry-run=client -o yaml | kubectl apply -f -
 kubectl apply -f "${SCRIPT_DIR}/../frontend/nextchat/"
+
+echo "=== 21. NextChat HTTPRoute (pointing to ai-gateway) ==="
+kubectl apply -f "${SCRIPT_DIR}/envoy-ai-gateway/httproute-nextchat.yaml"
 
 echo ""
 echo "All resources deployed."
 echo "Next steps (run once after initial deploy):"
 echo "  bash hetzner-cp-node-socat.sh"
+

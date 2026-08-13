@@ -1,24 +1,25 @@
 apiVersion: gateway.envoyproxy.io/v1alpha1
 kind: Backend
 metadata:
-  name: deepseek-inferencepool-backend
+  name: llm-server-inferencepool-backend
   namespace: beta
 spec:
   endpoints:
     - fqdn:
-        hostname: deepseek-14b-inference-pool.beta.svc.cluster.local
+        hostname: llm-server-kserve-workload-svc.beta.svc.cluster.local
         port: 8000
 ---
 apiVersion: aigateway.envoyproxy.io/v1beta1
 kind: AIServiceBackend
 metadata:
-  name: deepseek-backend
+  name: llm-server-backend
   namespace: beta
 spec:
   backendRef:
     group: gateway.envoyproxy.io
     kind: Backend
-    name: deepseek-inferencepool-backend
+    name: llm-server-inferencepool-backend
   schema:
     name: OpenAI
     version: v1
+

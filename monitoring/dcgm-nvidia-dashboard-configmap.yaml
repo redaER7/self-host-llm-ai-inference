@@ -1135,14 +1135,6 @@ data:
           "kind": "QueryVariable",
           "spec": {
             "allowCustomValue": true,
-            "current": {
-              "text": [
-                "10.42.1.23:9400"
-              ],
-              "value": [
-                "10.42.1.23:9400"
-              ]
-            },
             "definition": "label_values(DCGM_FI_DEV_GPU_TEMP, instance)",
             "hide": "dontHide",
             "includeAll": false,
