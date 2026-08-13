@@ -1,6 +1,6 @@
 # Self-Host LLM AI Inference
 
-Self-host large language model inference on rented GPUs using Kubernetes, KServe, vLLM, and llm-d. Control plane on Hetzner Cloud, GPU workers on Trooper AI and RunPod.
+Self-host large language model inference on rented GPUs using Kubernetes, KServe, vLLM, and llm-d. Control plane on Hetzner Cloud, GPU workers on Trooper AI and dedicated Blackwell GPUs.
 
 **Tags**: `k3s` `vllm` `envoy-gateway` `hetzner` `trooper-ai` `wireguard` `gpu-inference` `self-hosted-llm`
 
@@ -16,7 +16,7 @@ We use **Trooper AI** on-demand GPU instances for GPU workers — they allow qui
 - [Case α+AI (alpha+envoy-AI) — Minimal + AI Gateway](#case-αai-alphaenvoy-ai--minimal--ai-gateway)
 - [Case β (beta) — Single Model (with KServe)](#case-β-beta--single-model-with-kserve)
 - [Case γ (gamma) — Multi-Model MIG Binpacking](#case-γ-gamma--multi-model-mig-binpacking)
-- [Case Ω (omega) — Multi-Model on RunPod (with llm-d)](#case-ω-omega--multi-model-on-runpod-with-llm-d)
+- [Case Ω (omega) — Multi-Model on Blackwell (2 GPUs, no MIG)](#case-ω-omega--multi-model-on-blackwell-2-gpus-no-mig)
 
 ---
 
@@ -66,7 +66,7 @@ After these steps, pick a case below and follow its Quick Start.
 | **α+AI** | alpha+envoy-AI | Envoy AI Gateway | vLLM (direct) | Trooper AI | DeepSeek-R1-Distill-Qwen-14B |
 | **β** | beta | Envoy AI Gateway | KServe + vLLM | Trooper AI (RTX 3090) | Qwen 2.5-32B |
 | **γ** | gamma | Envoy AI Gateway | KServe + vLLM + llm-d | Trooper AI (A100 40GB, MIG) | Qwen 2.5-7B + Qwen 2.5-14B |
-| **Ω** | omega | Envoy AI Gateway | KServe + vLLM + llm-d | RunPod | Qwen 7B + DeepSeek 33B + Llama 3 70B |
+| **Ω** | omega | Envoy AI Gateway | KServe + vLLM + llm-d | Blackwell (2 GPUs) | Llama 3.1 70B + Mistral 7B |
 
 See [Plan.md](./Plan.md) for full architecture details.
 
@@ -181,10 +181,10 @@ See [case_gamma/README.md](./case_gamma/README.md) for details.
 |-----------|-----------|---------|
 | K3s control plane | [k8s_control_plane/](./k8s_control_plane/) | α β γ Ω |
 | GPU provider bootstrap | [gpu_providers/](./gpu_providers/) | α β γ Ω |
-| Model image builder | [model-image/](./model-image/) | α β γ Ω |
+| Model image builder | [model-image/](./model-image/) | optional — all cases download weights from HF at startup |
 | Monitoring (Prometheus + Grafana + DCGM) | [monitoring/](./monitoring/) | α+AI β γ Ω |
-| NextChat frontend | [frontend/nextchat/](./frontend/nextchat/) | α β |
-| socat forwarder (443→30080) | root: `hetzner-cp-node-socat.sh` | α β γ |
+| NextChat frontend | [frontend/nextchat/](./frontend/nextchat/) | α α+AI β |
+| socat forwarder (443→30080) | root: `hetzner-cp-node-socat.sh` | α α+AI β |
 
 ### Trooper AI firewall
 
@@ -192,6 +192,15 @@ Trooper AI has an external firewall in front of GPU nodes. For WireGuard to conn
 
 ---
 
-## Case Ω (omega) — Multi-Model on RunPod (with llm-d)
+## Case Ω (omega) — Multi-Model on Blackwell (2 GPUs, no MIG)
 
-*Coming soon.*
+KServe + vLLM + llm-d + Envoy AI Gateway serving two models on two dedicated GPUs (no MIG partitioning):
+
+| Model | GPU | VRAM | Quant |
+|-------|-----|------|-------|
+| Llama 3.1 70B Instruct | RTX Pro 5000 Blackwell | 48 GB | AWQ INT4 |
+| Mistral 7B Instruct | RTX Pro 4000 Blackwell | 24 GB | BF16 |
+
+Includes llm-d EPP (prefix-cache + load-aware scorers), per-model rate limiting, token metering, TLS via Let's Encrypt, and full monitoring.
+
+See [case_omega/README.md](./case_omega/README.md) for details.

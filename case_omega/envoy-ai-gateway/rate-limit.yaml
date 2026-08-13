@@ -1,0 +1,48 @@
+---
+# Per-model request rate limit (Llama 70B — slower, lower limit)
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: BackendTrafficPolicy
+metadata:
+  name: omega-rate-limit-llama70b
+  namespace: envoy-ai-gateway-system
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: ai-gateway
+  rateLimit:
+    type: Local
+    local:
+      rules:
+        - clientSelectors:
+            - headers:
+                - name: x-ai-eg-model
+                  type: Exact
+                  value: "meta-llama/Llama-3.1-70B-Instruct"
+          limit:
+            requests: 20
+            unit: Minute
+---
+# Per-model request rate limit (Mistral 7B — faster, higher limit)
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: BackendTrafficPolicy
+metadata:
+  name: omega-rate-limit-mistral7b
+  namespace: envoy-ai-gateway-system
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: ai-gateway
+  rateLimit:
+    type: Local
+    local:
+      rules:
+        - clientSelectors:
+            - headers:
+                - name: x-ai-eg-model
+                  type: Exact
+                  value: "mistralai/Mistral-7B-Instruct-v0.3"
+          limit:
+            requests: 60
+            unit: Minute

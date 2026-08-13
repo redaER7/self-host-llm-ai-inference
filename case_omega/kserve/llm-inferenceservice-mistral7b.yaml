@@ -1,0 +1,15 @@
+apiVersion: serving.kserve.io/v1alpha1
+kind: LLMInferenceService
+metadata:
+  name: mistral7b
+  namespace: omega
+spec:
+  baseRefs:
+    - name: llm-inference-service-config-model-mistral7b
+    - name: llm-inference-service-config-workload-mistral7b
+  router:
+    scheduler:
+      endpointPickerConfig:
+        configMapRef:
+          name: custom-endpoint-picker-config
+          key: endpoint-picker-config.yaml

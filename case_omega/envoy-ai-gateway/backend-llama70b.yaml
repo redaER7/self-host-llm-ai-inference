@@ -1,0 +1,24 @@
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: Backend
+metadata:
+  name: llama70b-inferencepool-backend
+  namespace: omega
+spec:
+  endpoints:
+    - fqdn:
+        hostname: llama70b-kserve-workload-svc.omega.svc.cluster.local
+        port: 8000
+---
+apiVersion: aigateway.envoyproxy.io/v1beta1
+kind: AIServiceBackend
+metadata:
+  name: llama70b-backend
+  namespace: omega
+spec:
+  backendRef:
+    group: gateway.envoyproxy.io
+    kind: Backend
+    name: llama70b-inferencepool-backend
+  schema:
+    name: OpenAI
+    version: v1

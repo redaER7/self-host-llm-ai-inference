@@ -1,0 +1,9 @@
+apiVersion: serving.kserve.io/v1alpha1
+kind: LLMInferenceServiceConfig
+metadata:
+  name: llm-inference-service-config-model-llama70b
+  namespace: omega
+spec:
+  model:
+    uri: hf://hugging-quants/Meta-Llama-3.1-70B-Instruct-AWQ-INT4
+    name: meta-llama/Llama-3.1-70B-Instruct
