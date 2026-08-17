@@ -1,7 +1,7 @@
 ARG BASE_IMAGE=vllm/vllm-openai:latest
 FROM $BASE_IMAGE
 
-ARG MODEL_NAME=Qwen/Qwen2.5-7B-Instruct
+ARG MODEL_NAME=Qwen/Qwen3.8-27B
 
 RUN pip install --no-cache-dir huggingface-hub
 

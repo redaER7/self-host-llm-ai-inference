@@ -48,27 +48,29 @@
                     │  Latency: ~31ms (adjust based on geo-location)
                                  │
 ┌────────────────────────────────▼─────────────────────────────────────────────┐
-│  TROOPER AI GPU NODE (10.10.0.2) - RTX 4090 (24 GB VRAM)                   │
+│  TROOPER AI GPU NODE (10.10.0.2) - 2× A100 (40 GB VRAM each)                │
 │                                                                              │
 │  ┌────────────────────────────────────────────────────────────────────────┐ │
 │  │  VLLM POD (hostNetwork: true, binds 10.10.0.2:8000)                   │ │
  │  │  - Managed by KServe LLMInferenceService "llm-server"                │ │
 │  │  - Init container downloads model (cached via emptyDir)               │ │
 │  │  - vLLM args:                                                         │ │
- │  │    --model Qwen/Qwen2.5-32B-Instruct-AWQ                             │ │
-│  │    --quantization awq                                                 │ │
-│  │    --tensor-parallel-size 1                                           │ │
-│  │    --max-model-len 8192                                               │ │
+ │  │    --model Qwen/Qwen3.8-27B                                           │ │
+│  │    --tensor-parallel-size 2                                           │ │
+│  │    --max-model-len 262144                                             │ │
 │  │    --max-num-seqs 8                                                   │ │
 │  │    --gpu-memory-utilization 0.90                                      │ │
 │  │    --enable-prefix-caching                                            │ │
+│  │    --enable-auto-tool-choice                                          │ │
+│  │    --tool-call-parser qwen3_coder                                     │ │
+│  │    --reasoning-parser qwen3                                           │ │
  │  │  - Service: llm-server-kserve-workload-svc (ClusterIP :8000)         │ │
 │  └────────────────────────────────────────────────────────────────────────┘ │
 │                                                                              │
 │  GPU Resources:                                                             │
- │  ├── Weights (AWQ INT4): ~16 GiB                                           │
- │  ├── KV Cache: ~6 GiB (max ~32K tokens, ~6 concurrent at 8K ctx)           │
- │  └── Total VRAM usage: ~22-23 GiB (within 24 GB limit)                     │
+ │  ├── Weights (BF16, TP2): ~26 GiB per GPU                                   │
+ │  ├── KV Cache: ~14 GiB/GPU headroom (hybrid attention, 48/64 linear layers) │
+ │  └── Total VRAM usage: ~26-30 GiB per GPU (within 40 GB limit)              │
 │                                                                              │
- │  Model Cache: /mnt/huggingface/models (emptyDir) → ~20 GB download          │
+ │  Model Cache: /mnt/huggingface/models (emptyDir) → ~55.6 GB download         │
 └──────────────────────────────────────────────────────────────────────────────┘

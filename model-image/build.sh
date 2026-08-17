@@ -7,13 +7,13 @@ set -euo pipefail
 #   bash build.sh [--base <image>] [--model <name>] [--tag <tag>] [--push <registry>]
 #
 # Examples:
-#   bash build.sh --base vllm/vllm-openai:latest --model deepseek-ai/DeepSeek-Coder-33B-Instruct-AWQ --tag myregistry/vllm-with-weights:latest
-#   bash build.sh --base quay.io/kserve/vllm:latest --model deepseek-ai/DeepSeek-Coder-33B-Instruct-AWQ --tag myregistry/kserve-vllm-with-weights:latest
+#   bash build.sh --base vllm/vllm-openai:latest --model Qwen/Qwen3.8-27B --tag myregistry/vllm-with-weights:latest
+#   bash build.sh --base quay.io/kserve/vllm:latest --model Qwen/Qwen3.8-27B --tag myregistry/kserve-vllm-with-weights:latest
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 BASE_IMAGE="vllm/vllm-openai:latest"
-MODEL_NAME="deepseek-ai/DeepSeek-Coder-33B-Instruct-AWQ"
+MODEL_NAME="Qwen/Qwen3.8-27B"
 TAG=""
 REGISTRY=""
 

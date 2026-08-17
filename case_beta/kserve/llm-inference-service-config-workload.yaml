@@ -25,19 +25,17 @@ spec:
           - vllm.entrypoints.openai.api_server
         args:
           - --model
-          - Qwen/Qwen2.5-32B-Instruct-AWQ
+          - Qwen/Qwen3.8-27B
           - --port
           - "8000"
           - --host
           - "0.0.0.0"
           - --dtype
           - auto
-          - --quantization
-          - awq
           - --tensor-parallel-size
-          - "1"
+          - "2"
           - --max-model-len
-          - "8192"
+          - "262144"
           - --max-num-seqs
           - "8"
           - --gpu-memory-utilization
@@ -47,7 +45,9 @@ spec:
           - --enable-prefix-caching
           - --enable-auto-tool-choice
           - --tool-call-parser
-          - hermes
+          - qwen3_coder
+          - --reasoning-parser
+          - qwen3
         env:
           - name: HF_TOKEN
             valueFrom:
@@ -71,11 +71,11 @@ spec:
             mountPath: /mnt/huggingface/models
         resources:
           limits:
-            nvidia.com/gpu: "1"
-            memory: 24Gi
+            nvidia.com/gpu: "2"
+            memory: 64Gi
           requests:
-            nvidia.com/gpu: "1"
-            memory: 16Gi
+            nvidia.com/gpu: "2"
+            memory: 48Gi
         securityContext:
           runAsNonRoot: false
           capabilities:
