@@ -146,6 +146,8 @@ Deployment is fully automated by [k8s_deploy.sh](k8s_deploy.sh) (run after [k8s_
 
 Required when CP and GPU nodes are on different networks (e.g. Hetzner + Trooper AI). Skip if all nodes are on the same LAN — Flannel VXLAN works natively.
 
+> Full reference — setup scripts, multi-GPU ports, firewall rules and troubleshooting: [`wireguard/README.md`](../wireguard/README.md).
+
 ### How it works
 
 Flannel uses VXLAN (`UDP 8472`) for pod-to-pod networking across nodes. The CP reaches the GPU node's WireGuard IP (`10.10.0.2`) via a tunnel.
@@ -216,6 +218,7 @@ You should see replies (~31ms for Hetzner ↔ Trooper AI).
 
 | Port | Protocol | Purpose |
 |------|----------|---------|
+| 29817–29836 | UDP | WireGuard inbound from CP (must be allowed in the Trooper AI external firewall) |
 | 8472 | UDP | Flannel VXLAN |
 | 10250 | TCP | Kubelet |
 

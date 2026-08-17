@@ -70,12 +70,13 @@ Install K3s agent separately (see above).
 
 ### 3. Add GPU peer to CP config
 
-On the CP, add each GPU's public key to `/etc/wireguard/wg0.conf`:
+On the CP, add each GPU's public key to `/etc/wireguard/wg0.conf`. Each GPU listens on its own WireGuard port (default `29817`), **not** `51820`, so include the GPU's public IP and port as the peer `Endpoint`:
 
 ```ini
 [Peer]
 PublicKey = <gpu-public-key>
 AllowedIPs = 10.10.0.2/32
+Endpoint = <GPU_PUBLIC_IP>:29817
 ```
 
 Then restart: `sudo systemctl restart wg-quick@wg0`
@@ -95,7 +96,7 @@ kubectl run -it --rm debug --image=busybox --restart=Never -- ping -c 3 10.10.0.
 
 ## Multi-GPU example
 
-CP config with two GPU peers:
+CP config with two GPU peers. Give each GPU a distinct listen port (within the Trooper AI allowed inbound range `29817–29836`) and match it in the peer `Endpoint`:
 
 ```ini
 [Interface]
@@ -105,14 +106,16 @@ PrivateKey = <cp-private-key>
 MTU = 1420
 
 [Peer]
-# GPU 1
+# GPU 1 (wg0 ListenPort = 29817)
 PublicKey = <gpu1-pub-key>
 AllowedIPs = 10.10.0.2/32
+Endpoint = <gpu1-public-ip>:29817
 
 [Peer]
-# GPU 2
+# GPU 2 (wg0 ListenPort = 29818)
 PublicKey = <gpu2-pub-key>
 AllowedIPs = 10.10.0.3/32
+Endpoint = <gpu2-public-ip>:29818
 ```
 
 ## Firewall reference (both nodes)
@@ -136,11 +139,45 @@ AllowedIPs = 10.10.0.3/32
 
 ### External firewall (Trooper AI GPU node)
 
-Trooper AI has an external firewall in front of the GPU node. These rules must be configured in the Trooper AI dashboard **before** WireGuard can connect:
+Trooper AI has an external firewall in front of the GPU node. These rules must be configured in the Trooper AI dashboard **before** WireGuard can connect. The GPU node's WireGuard listen port must be inside the allowed inbound range (`29817–29836`), otherwise the CP's handshake replies are dropped:
 
 | Port | Protocol | Destination | Direction | Purpose |
 |------|----------|-------------|-----------|---------|
-| 51820 | UDP | <GPU_NODE_IP> | Outbound | WireGuard handshake/keepalive to CP |
+| 29817–29836 | UDP | <GPU_NODE_IP> | Inbound | WireGuard replies from CP (GPU listen port) |
+| 29839 | TCP | <GPU_NODE_IP> | Inbound | SSH |
+| 51820 | UDP | <CP_NODE_IP> | Outbound | WireGuard handshake/keepalive to CP |
+
+## Troubleshooting
+
+**Symptom** — `ping -c 3 10.10.0.2` from the CP returns `Destination Host Unreachable`, and on the GPU `sudo wg show wg0` shows `transfer: 0 B received, <n> B sent` (handshake replies never arrive).
+
+**Cause** — the GPU node's WireGuard daemon picked an ephemeral listen port (e.g. `37460`) that is outside the Trooper AI allowed inbound range, so the CP's replies are dropped by the external firewall.
+
+**Fix**
+
+1. Pin the listen port to an allowed value in `/etc/wireguard/wg0.conf` on the GPU node:
+
+   ```ini
+   [Interface]
+   Address = 10.10.0.2/24
+   ListenPort = 29817
+   ```
+
+2. Restart the tunnel:
+   ```bash
+   sudo systemctl restart wg-quick@wg0
+   ```
+
+3. On the CP, set the peer `Endpoint = <GPU_PUBLIC_IP>:29817` and restart `wg-quick@wg0`.
+
+4. Verify:
+   ```bash
+   # On the GPU node — received bytes should now grow
+   sudo wg show wg0
+
+   # On the CP node
+   ping -c 3 10.10.0.2
+   ```
 
 
 ## Files
