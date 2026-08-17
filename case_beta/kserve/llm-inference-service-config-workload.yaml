@@ -72,7 +72,7 @@ spec:
         resources:
           limits:
             nvidia.com/gpu: "2"
-            memory: 64Gi
+            memory: 80Gi
           requests:
             nvidia.com/gpu: "2"
             memory: 48Gi
@@ -85,6 +85,6 @@ spec:
       - name: dshm
         emptyDir:
           medium: Memory
-          sizeLimit: 4Gi
+          sizeLimit: 16Gi
       - name: model-cache
         emptyDir: {}
