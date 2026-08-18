@@ -5,5 +5,5 @@ metadata:
   namespace: beta
 spec:
   model:
-    uri: hf://Qwen/Qwen3.8-27B
+    uri: hf://Qwen/Qwen3.8-27B-FP8
     name: Qwen/Qwen3.8-27B
