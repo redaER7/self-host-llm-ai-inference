@@ -11,7 +11,7 @@ spec:
     - matches:
         - headers:
             - name: x-ai-eg-model
-              value: "Qwen/Qwen3.8-27B"
+              value: "Qwen/Qwen3.8-27B-FP8"
       backendRefs:
         - name: llm-server-backend
   llmRequestCosts:

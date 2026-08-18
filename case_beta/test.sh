@@ -1,4 +1,4 @@
-MODEL="Qwen/Qwen3.8-27B"
+MODEL="Qwen/Qwen3.8-27B-FP8"
 DOMAIN="llm.yacodata.com"
 
 echo "=== Test 1: Direct HTTPS via Envoy AI Gateway ==="

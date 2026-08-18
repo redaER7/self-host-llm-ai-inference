@@ -6,4 +6,4 @@ metadata:
 spec:
   model:
     uri: hf://Qwen/Qwen3.8-27B-FP8
-    name: Qwen/Qwen3.8-27B
+    name: Qwen/Qwen3.8-27B-FP8

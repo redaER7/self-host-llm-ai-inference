@@ -71,6 +71,8 @@ spec:
             mountPath: /dev/shm
           - name: hf-models
             mountPath: /mnt/huggingface/models
+          - name: vllm-cache
+            mountPath: /home/.cache
         resources:
           limits:
             nvidia.com/gpu: "2"
@@ -91,4 +93,8 @@ spec:
       - name: hf-models
         hostPath:
           path: /mnt/hf-models
+          type: DirectoryOrCreate
+      - name: vllm-cache
+        hostPath:
+          path: /mnt/vllm-cache
           type: DirectoryOrCreate

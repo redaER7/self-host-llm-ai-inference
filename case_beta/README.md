@@ -1,6 +1,6 @@
 # Case β (beta) — Single Model with Envoy AI Gateway + KServe
 
-Envoy AI Gateway → KServe LLMInferenceService → vLLM (Qwen3.8-27B, BF16, TP2). Control plane on Hetzner CX33, GPU worker on Trooper AI (2× A100 40GB). Cross-node pod networking via Flannel VXLAN over WireGuard.
+Envoy AI Gateway → KServe LLMInferenceService → vLLM (Qwen3.8-27B-FP8, TP2). Control plane on Hetzner CX33, GPU worker on Trooper AI (2× RTX 4080 Super 32GB, 64 GB total). Cross-node pod networking via Flannel VXLAN over WireGuard. The dense BF16 checkpoint (~52 GiB) does not fit 2× 32GB GPUs — the FP8 quantized checkpoint halves it to ~31 GB; the full-precision model requires ~80 GB VRAM (e.g. 2× A100 40GB).
 
 llm-d is installed by KServe as the router image (via built-in LLMInferenceServiceConfigs) and routes requests to the vLLM worker. With a single replica the EPP scheduler is a pass-through — custom scorer weights (prefix-cache + load-aware) are defined in `kserve/endpoint-picker-config.yaml` but not wired into the LLMInferenceService. Uncomment the `router.scheduler.endpointPickerConfig` block in `kserve/llm-inferenceservice.yaml` when scaling to 2+ replicas.
 
@@ -33,10 +33,10 @@ Client → https://llm.yacodata.com:443
             │
             ▼
            vLLM pod (GPU node, hostNetwork, 10.10.0.2:8000)
-            ├── model: Qwen/Qwen3.8-27B
-            ├── precision: bf16 (no quantization)
-            ├── tensor-parallel-size: 2 (2× A100 40GB)
-            ├── max-model-len: 262144
+            ├── model: Qwen/Qwen3.8-27B-FP8
+            ├── precision: fp8 (quantized)
+            ├── tensor-parallel-size: 2 (2× RTX 4080 Super 32GB)
+            ├── max-model-len: 32768
             ├── max-num-seqs: 8
             └── gpu-memory-utilization: 0.90
 ```
@@ -74,11 +74,11 @@ TLS termination happens at the Envoy Gateway proxy (cert-manager + Let's Encrypt
 
 Same K3s setup as alpha — see [case_alpha/README.md](../case_alpha/README.md#requirements). Control plane on Hetzner CX33 (4 vCPU / 8 GB RAM), GPU worker joined as K3s agent with label `node-role.kubernetes.io/gpu-node`.
 
-### GPU (Trooper AI)
+### GPU (Trooper AI — 2× RTX 4080 Super 32GB)
   
 | GPU | VRAM | Why |
 |-----|------|-----|
-| **2× A100 40GB** | 80 GB total | BF16 Qwen3.8-27B (~52 GiB weights) via TP2 → ~26 GiB weights/GPU, ~14 GiB/GPU left for KV cache + activations. Hybrid attention (48/64 linear layers) keeps KV small even at 262k context |
+| **2× RTX 4080 Super 32GB** | 64 GB total | FP8 Qwen3.8-27B (~31 GB weights) via TP2 → ~16 GiB weights/GPU (observed during load), ~16 GiB/GPU left for KV cache + activations. Hybrid attention (48/64 linear layers) keeps KV small. The dense BF16 checkpoint (~52 GiB) does **not** fit 2× 32GB (OOM during weight load) — it requires ~80 GB VRAM (e.g. 2× A100 40GB) |
 
 ### Model Weights
 
@@ -86,13 +86,13 @@ Weights download from HuggingFace on first pod startup. The model-cache volume p
 
 | Property | Value |
 |----------|-------|
-| Model | Qwen/Qwen3.8-27B |
-| Precision | BF16 (native, no quantization) |
+| Model | Qwen/Qwen3.8-27B-FP8 |
+| Precision | FP8 (quantized; official Qwen checkpoint) |
 | Strategy | HF download at startup |
-| Cold start | ~10-15 min (first time, 55.6 GB), ~10 s (cached) |
-| Download size | ~55.6 GB (51.7 GiB) |
-| VRAM usage | ~26 GiB weights/GPU (TP2) + KV cache (at 262k ctx, batch=8) |
-| Context window | 262144 native (extensible to 1M) |
+| Cold start | ~10-15 min (first time, ~31 GB), ~10 s (cached) |
+| Download size | ~31 GB (~29 GiB) |
+| VRAM usage | ~16 GiB weights/GPU (TP2) + KV cache (at 32768 ctx, batch=8) |
+| Context window | 262144 native (extensible to 1M); 32768 configured on 64 GB |
 | Hybrid attention | 48 Gated DeltaNet (linear) layers + 16 full-attention layers |
 | Extras | Multimodal (vision tower), built-in MTP draft head (opt-in), reasoning + tool calling |
 
@@ -134,7 +134,7 @@ Deployment is fully automated by [k8s_deploy.sh](k8s_deploy.sh) (run after [k8s_
 18. **KServe configs** — endpoint-picker + model + workload LLMInferenceServiceConfigs
 19. **LLMInferenceService** — model + workload combined
 20. **Backend + AIServiceBackend** — Backend points to the InferencePool created by LLMInferenceService
-21. **AIGatewayRoute** — header match `x-ai-eg-model: Qwen/Qwen3.8-27B`
+21. **AIGatewayRoute** — header match `x-ai-eg-model: Qwen/Qwen3.8-27B-FP8`
 22. **Rate limiting** — BackendTrafficPolicy (30 req/min)
 23. **CORS policy** — allow NextChat origin to call Envoy Gateway
 24. **NextChat frontend + HTTPRoute** — UI on CP node + route through `ai-gateway`
@@ -172,7 +172,7 @@ This creates the server key, starts WireGuard, and prints the **server public ke
 
 Open **port 51820/udp** in the Hetzner firewall.
 
-> **New GPU node (2× A100)**: the A100 node is a **new** node and needs its own WireGuard peer + Flannel config. Follow the same steps below with a new IP in `10.10.0.0/24` (e.g. `10.10.0.3`), then add its peer on the CP and set `node-ip`/`flannel-iface: wg0` in its K3s config before joining the cluster.
+> **New GPU node (2× RTX 4080 Super 32GB)**: the GPU node is a **new** node and needs its own WireGuard peer + Flannel config. Follow the same steps below with a new IP in `10.10.0.0/24` (e.g. `10.10.0.3`), then add its peer on the CP and set `node-ip`/`flannel-iface: wg0` in its K3s config before joining the cluster.
 
 ### Step 2 — GPU node
 

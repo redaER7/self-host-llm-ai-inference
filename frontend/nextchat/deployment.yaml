@@ -22,7 +22,7 @@ spec:
             - name: BASE_URL
               value: "https://llm.yacodata.com"
             - name: CUSTOM_MODELS
-              value: "Qwen/Qwen3.8-27B"
+              value: "Qwen/Qwen3.8-27B-FP8"
             - name: CODE
               valueFrom:
                 secretKeyRef:

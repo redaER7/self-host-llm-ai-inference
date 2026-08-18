@@ -64,7 +64,7 @@ After these steps, pick a case below and follow its Quick Start.
 |------|------|---------|-----------|-------------|--------|
 | **α** | alpha | Envoy Gateway (plain) | vLLM (direct) | Trooper AI | Qwen 2.5-3B |
 | **α+AI** | alpha+envoy-AI | Envoy AI Gateway | vLLM (direct) | Trooper AI | DeepSeek-R1-Distill-Qwen-14B |
-| **β** | beta | Envoy AI Gateway | KServe + vLLM | Trooper AI (2× A100 40GB) | Qwen3.8-27B |
+| **β** | beta | Envoy AI Gateway | KServe + vLLM | Trooper AI (2× RTX 4080 Super 32GB) | Qwen3.8-27B (FP8) |
 | **γ** | gamma | Envoy AI Gateway | KServe + vLLM + llm-d | Trooper AI (A100 40GB, MIG) | Qwen 2.5-7B + Qwen 2.5-14B |
 | **Ω** | omega | Envoy AI Gateway | KServe + vLLM + llm-d | Blackwell (2 GPUs) | Llama 3.1 70B + Mistral 7B |
 
@@ -148,7 +148,7 @@ See [case_alpha+envoy-AI/README.md](./case_alpha+envoy-AI/README.md) for full de
 
 ## Case β (beta) — Single Model (with KServe)
 
-Envoy AI Gateway → KServe → vLLM on Trooper AI 2× A100 40GB (BF16, TP2). Control plane on Hetzner CX33, GPU worker on Trooper AI. Cross-node pod networking via Flannel VXLAN over a WireGuard tunnel. Includes TLS (Let's Encrypt via Cloudflare), CORS for NextChat frontend, token metering, and rate limiting.
+Envoy AI Gateway → KServe → vLLM on Trooper AI 2× RTX 4080 Super 32GB (FP8, TP2). Dense BF16 (~52 GiB) needs ~80 GB VRAM; the FP8 checkpoint halves it to ~31 GB. Control plane on Hetzner CX33, GPU worker on Trooper AI. Cross-node pod networking via Flannel VXLAN over a WireGuard tunnel. Includes TLS (Let's Encrypt via Cloudflare), CORS for NextChat frontend, token metering, and rate limiting.
 
 ```
 Client → llm.yacodata.com:443 (HTTPS)
@@ -158,7 +158,7 @@ Client → llm.yacodata.com:443 (HTTPS)
          Envoy AI Gateway (InferencePool, token metering, rate limiting)
            ↓
          KServe LLMInferenceService "qwen-27b"
-           └── vLLM (Qwen/Qwen3.8-27B, GPU node, TP2)
+           └── vLLM (Qwen/Qwen3.8-27B-FP8, GPU node, TP2)
 ```
 
 **Frontend**: [NextChat](https://github.com/chatgptnextweb/nextchat) served from CP node at `chat.yacodata.com`, calls Envoy Gateway directly from the browser (CORS configured via SecurityPolicy).
