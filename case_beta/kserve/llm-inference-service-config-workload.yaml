@@ -18,7 +18,7 @@ spec:
       - name: registry-credentials
     containers:
       - name: main
-        image: vllm/vllm-openai:latest
+        image: vllm/vllm-openai:qwen38
         command:
           - python3
           - -m
@@ -31,11 +31,11 @@ spec:
           - --host
           - "0.0.0.0"
           - --dtype
-          - auto
+          - float16
           - --tensor-parallel-size
           - "2"
           - --max-model-len
-          - "262144"
+          - "32768"
           - --max-num-seqs
           - "8"
           - --gpu-memory-utilization
@@ -72,7 +72,7 @@ spec:
         resources:
           limits:
             nvidia.com/gpu: "2"
-            memory: 80Gi
+            memory: 76Gi
           requests:
             nvidia.com/gpu: "2"
             memory: 48Gi
@@ -87,4 +87,6 @@ spec:
           medium: Memory
           sizeLimit: 16Gi
       - name: model-cache
-        emptyDir: {}
+        hostPath:
+          path: /mnt/hf-models
+          type: DirectoryOrCreate
