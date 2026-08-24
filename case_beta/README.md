@@ -1,8 +1,16 @@
-# Case β (beta) — Single Model with Envoy AI Gateway + KServe
+# Case β (beta) — Dense Model Benchmark Suite
 
-Envoy AI Gateway → KServe LLMInferenceService → vLLM (Qwen 2.5 32B Instruct AWQ). Control plane on Hetzner CX33, GPU worker on Trooper AI (RTX 3090). Cross-node pod networking via Flannel VXLAN over WireGuard.
+Dedicated environment for testing dense models on 1× RTX 4090 Pro (48 GB). Envoy AI Gateway → KServe → vLLM. Control plane on Hetzner CX33, GPU worker with RTX 4090 Pro 48 GB.
 
-llm-d is installed by KServe as the router image (via built-in LLMInferenceServiceConfigs) and routes requests to the vLLM worker. With a single replica the EPP scheduler is a pass-through — custom scorer weights (prefix-cache + load-aware) are defined in `kserve/endpoint-picker-config.yaml` but not wired into the LLMInferenceService. Uncomment the `router.scheduler.endpointPickerConfig` block in `kserve/llm-inferenceservice.yaml` when scaling to 2+ replicas.
+Models tested:
+
+| Model | Params | Quant | Weights | Native ctx | Context ladder |
+|---|---|---|---|---|---|
+| **Qwen/Qwen3.6-27B** | 27B | FP8 | ~27 GB | 128K | 8192 / 32768 / 65536 / 131072 |
+| **google/gemma-4-31b** | 31B | QAT INT4 | ~20 GB | 256K | 8192 / 32768 / 131072 / 262144 |
+| **deepseek-ai/DeepSeek-R1-Distill-Qwen-32B** | 32B | AWQ INT4 | ~19 GB | 128K | 8192 / 32768 / 65536 |
+
+Benchmark script: `Tests/bench_matrix.py` — run per model per context via interactive sweep.
 
 ## Architecture
 
@@ -32,17 +40,13 @@ Client → https://llm.yacodata.com:443
           KServe workload service
             │
             ▼
-           vLLM pod (GPU node, hostNetwork, 10.10.0.2:8000)
-            ├── model: Qwen/Qwen2.5-32B-Instruct-AWQ
-            ├── quantization: awq
-            ├── max-model-len: 8192
+           vLLM pod (GPU node, hostNetwork)
+            ├── model: Qwen/Qwen3.6-27B (current)
+            ├── dtype: auto (FP8)
+            ├── max-model-len: 8192 (varied per sweep)
             ├── max-num-seqs: 8
             └── gpu-memory-utilization: 0.90
 ```
-
-The AI Gateway proxy (Envoy) and KServe controller run on the **control-plane node** (Hetzner). The vLLM pod runs on the **GPU node** (Trooper AI) with `hostNetwork: true`, binding directly to `10.10.0.2:8000`. Cross-node traffic flows over Flannel VXLAN (`UDP 8472`) through a WireGuard tunnel (`10.10.0.0/24`).
-
-TLS termination happens at the Envoy Gateway proxy (cert-manager + Let's Encrypt DNS-01 via Cloudflare).
 
 ## Key Features
 
@@ -51,46 +55,38 @@ TLS termination happens at the Envoy Gateway proxy (cert-manager + Let's Encrypt
 | **Model-based routing** | AI Gateway Controller via `x-ai-eg-model` header |
 | **Token metering** | AIGatewayRoute `llmRequestCosts` (input/output/total) |
 | **Rate limiting** | BackendTrafficPolicy (30 req/min) |
-| **EPP scheduling** | KServe endpoint picker — default config (custom scorer weights available, see `endpoint-picker-config.yaml`) |
+| **EPP scheduling** | KServe endpoint picker (custom scorer weights in `endpoint-picker-config.yaml`) |
 | **InferencePool** | Gateway API Inference Extension CRD |
 | **CORS** | SecurityPolicy for NextChat origins |
 | **TLS** | cert-manager + Let's Encrypt DNS-01 via Cloudflare |
 
-## Benefits Over Plain Deployment
-
-| Benefit | Why |
-|---------|-----|
-| **Production routing** | Envoy AI Gateway with token metering, rate limiting, model-based routing |
-| **KServe lifecycle** | LLMInferenceService manages deployment, service, InferencePool, HTTPRoute automatically |
-| **Prefetch-cache-aware routing** | EPP scorer config available (`endpoint-picker-config.yaml`); wire via `router.scheduler` in LLMInferenceService to activate when scaling to 2+ replicas |
-| **Load-aware routing** | EPP scorer config available (same ConfigMap); activate when scaling to 2+ replicas |
-| **Simple model updates** | Change model in config, redeploy — weights download at startup |
-| **Single entry point** | Envoy Gateway NodePort on `llm.yacodata.com` |
-
 ## Requirements
 
-### Kubernetes Cluster
+### GPU
 
-Same K3s setup as alpha — see [case_alpha/README.md](../case_alpha/README.md#requirements). Control plane on Hetzner CX33 (4 vCPU / 8 GB RAM), GPU worker joined as K3s agent with label `node-role.kubernetes.io/gpu-node`.
+| GPU | VRAM | Models |
+|-----|------|--------|
+| **RTX 4090 Pro** | 48 GB | Qwen3.6-27B (FP8), Gemma 4 31B (QAT INT4), R1-Distill-32B (AWQ) |
 
-### GPU (Trooper AI)
-  
-| GPU | VRAM | Why |
-|-----|------|-----|
-| **RTX 3090** | 24 GB | Fits Qwen 2.5 32B AWQ (~16 GiB weights) tight on KV cache — reduce max_model_len if needed |
+All three fit on a single card with TP=1. Context ladders per model above.
 
 ### Model Weights
 
 Weights download from HuggingFace on first pod startup. The model-cache volume persists across restarts, avoiding re-download.
 
-| Property | Value |
-|----------|-------|
-| Model | Qwen/Qwen2.5-32B-Instruct-AWQ |
-| Quantization | AWQ (INT4) |
-| Strategy | HF download at startup |
-| Cold start | ~5-6 min (first time), ~10 s (cached) |
-| Download size | ~20 GB |
-| VRAM usage | ~16 GiB weights + ~6 GiB KV cache (at 8192 ctx, batch=8) |
+| Model | Quant | Weights | KV headroom* | Cold start |
+|---|---|---|---|---|
+| Qwen/Qwen3.6-27B | FP8 | ~27 GB | ~16 GB | ~5 min (first), ~10 s (cached) |
+| google/gemma-4-31b | QAT INT4 | ~20 GB | ~23 GB | ~5 min (first), ~10 s (cached) |
+| deepseek-ai/DeepSeek-R1-Distill-Qwen-32B | AWQ INT4 | ~19 GB | ~24 GB | ~5 min (first), ~10 s (cached) |
+
+*\*at `--gpu-memory-utilization 0.90` (~43 GB usable)*
+
+### vLLM Notes
+
+- **Qwen3.6-27B**: Uses `--tool-call-parser hermes` for tool calling.
+- **Gemma 4 31B**: Requires vLLM nightly for hybrid attention support (5:1 SWA:Global). Use `--tool-call-parser hermes`.
+- **DeepSeek-R1-Distill-32B**: Always emits `<think>…</think>` reasoning blocks. Use `--reasoning-parser deepseek_r1`. No way to disable reasoning mode — decode numbers include thinking tokens.
 
 ### Software Stack
 
@@ -130,7 +126,7 @@ Deployment is fully automated by [k8s_deploy.sh](k8s_deploy.sh) (run after [k8s_
 18. **KServe configs** — endpoint-picker + model + workload LLMInferenceServiceConfigs
 19. **LLMInferenceService** — model + workload combined
 20. **Backend + AIServiceBackend** — Backend points to the InferencePool created by LLMInferenceService
-21. **AIGatewayRoute** — header match `x-ai-eg-model: Qwen/Qwen2.5-32B-Instruct-AWQ`
+21. **AIGatewayRoute** — header match `x-ai-eg-model: Qwen/Qwen3.6-27B`
 22. **Rate limiting** — BackendTrafficPolicy (30 req/min)
 23. **CORS policy** — allow NextChat origin to call Envoy Gateway
 24. **NextChat frontend + HTTPRoute** — UI on CP node + route through `ai-gateway`
@@ -282,7 +278,7 @@ bash k8s_deploy.sh
 
 ## When to use beta
 
-- Single-model deployment with KServe lifecycle management
+- Dense model benchmarking on a single RTX 4090 Pro (48 GB)
 - When token metering, rate limiting, and cache-aware routing are required
 - When you want a single public HTTPS endpoint with TLS termination
 - When all nodes are on the same network (skip WireGuard — Flannel VXLAN works natively)

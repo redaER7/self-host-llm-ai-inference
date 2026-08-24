@@ -3,6 +3,7 @@
 Thumbs.db
 
 *__pycache__
+Tests/Tests/
 
 # IDE
 .vscode/

@@ -25,15 +25,13 @@ spec:
           - vllm.entrypoints.openai.api_server
         args:
           - --model
-          - Qwen/Qwen2.5-32B-Instruct-AWQ
+          - Qwen/Qwen3.6-27B
           - --port
           - "8000"
           - --host
           - "0.0.0.0"
           - --dtype
           - auto
-          - --quantization
-          - awq
           - --tensor-parallel-size
           - "1"
           - --max-model-len
@@ -72,10 +70,10 @@ spec:
         resources:
           limits:
             nvidia.com/gpu: "1"
-            memory: 24Gi
+            memory: 48Gi
           requests:
             nvidia.com/gpu: "1"
-            memory: 16Gi
+            memory: 32Gi
         securityContext:
           runAsNonRoot: false
           capabilities:
