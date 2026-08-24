@@ -41,10 +41,9 @@ Client → https://llm.yacodata.com:443
             │
             ▼
            vLLM pod (GPU node, hostNetwork)
-            ├── model: casperhansen/deepseek-r1-distill-qwen-32b-awq (current)
-            ├── quantization: awq
-            ├── reasoning-parser: deepseek_r1
-            ├── max-model-len: 8192 (varied per sweep)
+            ├── model: google/gemma-4-31B-it-qat-w4a16-ct (current)
+            ├── quantization: compressed-tensors w4a16 (auto-detected)
+            ├── max-model-len: 8192 (varied per sweep; cap ~32k — vLLM does not yet exploit SWA layers for KV sizing)
             ├── max-num-seqs: 8
             └── gpu-memory-utilization: 0.90
 ```
@@ -78,7 +77,7 @@ Weights download from HuggingFace on first pod startup. The model-cache volume p
 | Model | Quant | Weights | KV headroom* | Cold start |
 |---|---|---|---|---|
 | Qwen/Qwen3.6-27B | FP8 | ~27 GB | ~16 GB | ~5 min (first), ~10 s (cached) |
-| google/gemma-4-31b | QAT INT4 | ~20 GB | ~23 GB | ~5 min (first), ~10 s (cached) |
+| google/gemma-4-31B-it-qat-w4a16-ct | QAT w4a16 | ~17 GB | ~25 GB | ~5 min (first), ~10 s (cached) |
 | deepseek-ai/DeepSeek-R1-Distill-Qwen-32B | AWQ INT4 | ~19 GB | ~24 GB | ~5 min (first), ~10 s (cached) |
 
 *\*at `--gpu-memory-utilization 0.90` (~43 GB usable)*
@@ -86,7 +85,7 @@ Weights download from HuggingFace on first pod startup. The model-cache volume p
 ### vLLM Notes
 
 - **Qwen3.6-27B**: Uses `--tool-call-parser hermes` for tool calling.
-- **Gemma 4 31B**: Requires vLLM nightly for hybrid attention support (5:1 SWA:Global). Use `--tool-call-parser hermes`.
+- **Gemma 4 31B (current)**: QAT w4a16 compressed-tensors checkpoint — quantization auto-detected from config.json, no `--quantization` flag. Supported since vLLM 0.19.1 (plain `:latest` image). ⚠ vLLM does not yet exploit SWA layers for KV sizing — cap `--max-model-len` at ~32768 on this GPU; longer ladders fail to allocate despite the model's native 256K context. No reasoning parser needed.
 - **DeepSeek-R1-Distill-32B**: Always emits `<think>…</think>` reasoning blocks. Use `--reasoning-parser deepseek_r1`. No way to disable reasoning mode — decode numbers include thinking tokens.
 
 ### Software Stack
@@ -128,7 +127,7 @@ Deployment is fully automated by [k8s_deploy.sh](k8s_deploy.sh) (run after [k8s_
 19. **KServe configs** — endpoint-picker + model + workload LLMInferenceServiceConfigs
 20. **LLMInferenceService** — model + workload combined
 21. **Backend + AIServiceBackend** — Backend points to the InferencePool created by LLMInferenceService
-22. **AIGatewayRoute** — header match `x-ai-eg-model: casperhansen/deepseek-r1-distill-qwen-32b-awq`
+22. **AIGatewayRoute** — header match `x-ai-eg-model: google/gemma-4-31B-it-qat-w4a16-ct`
 23. **Rate limiting** — BackendTrafficPolicy (100 req/min)
 24. **CORS policy** — allow NextChat origin to call Envoy Gateway
 25. **NextChat frontend + HTTPRoute** — UI on CP node + route through `ai-gateway`

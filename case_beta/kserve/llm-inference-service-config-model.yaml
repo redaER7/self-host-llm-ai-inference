@@ -5,5 +5,5 @@ metadata:
   namespace: beta
 spec:
   model:
-    uri: hf://casperhansen/deepseek-r1-distill-qwen-32b-awq
-    name: casperhansen/deepseek-r1-distill-qwen-32b-awq
+    uri: hf://google/gemma-4-31B-it-qat-w4a16-ct
+    name: google/gemma-4-31B-it-qat-w4a16-ct

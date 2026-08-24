@@ -25,15 +25,13 @@ spec:
           - vllm.entrypoints.openai.api_server
         args:
           - --model
-          - casperhansen/deepseek-r1-distill-qwen-32b-awq
+          - google/gemma-4-31B-it-qat-w4a16-ct
           - --port
           - "8000"
           - --host
           - "0.0.0.0"
           - --dtype
           - auto
-          - --quantization
-          - awq
           - --tensor-parallel-size
           - "1"
           - --max-model-len
@@ -45,11 +43,6 @@ spec:
           - --download-dir
           - /mnt/huggingface/models
           - --enable-prefix-caching
-          - --enable-auto-tool-choice
-          - --tool-call-parser
-          - hermes
-          - --reasoning-parser
-          - deepseek_r1
         env:
           - name: HF_TOKEN
             valueFrom:

@@ -1,4 +1,4 @@
-MODEL="casperhansen/deepseek-r1-distill-qwen-32b-awq"
+MODEL="google/gemma-4-31B-it-qat-w4a16-ct"
 DOMAIN="llm.yacodata.com"
 
 echo "=== Test 1: Direct HTTPS via Envoy AI Gateway ==="

@@ -16,7 +16,7 @@ spec:
             - headers:
                 - name: x-ai-eg-model
                   type: Exact
-                  value: "casperhansen/deepseek-r1-distill-qwen-32b-awq"
+                  value: "google/gemma-4-31B-it-qat-w4a16-ct"
           limit:
             requests: 100
             unit: Minute
