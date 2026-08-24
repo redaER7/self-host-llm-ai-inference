@@ -7,7 +7,7 @@ Usage:
     python3 Tests/bench_matrix.py --url https://llm.yacodata.com/v1/chat/completions --dry-run
 """
 
-import asyncio, aiohttp, json, os, random, sys, time, csv, argparse
+import asyncio, aiohttp, json, os, random, re, sys, time, csv, argparse
 from datetime import datetime
 from pathlib import Path
 from prompts import PROMPTS
@@ -17,16 +17,16 @@ from prompts import PROMPTS
 DEFAULT_URL = "https://llm.yacodata.com/v1/chat/completions"
 CONTEXTS = [8192, 32768, 131072, 262144]
 INPUT_FRACS = [0.5, 0.8]
-CONCURRENCY_LEVELS = [2,4]#, 20, 30]
+CONCURRENCY_LEVELS = [2,4,8,16]
 MAX_TOKENS_BASE = [512, 2048]
 MAX_TOKENS_LONG = 8192
 LONG_CONTEXTS = [131072, 262144]
 STREAM_OPTIONS = [True, False]
-REPEATS = 1
+REPEATS = 2
 WARMUP = 0
 TTFT_PROBES = 5
 BUDGET_SECONDS = 240
-MAX_CONCURRENT_BATCHES = 5
+MAX_CONCURRENT_BATCHES = 10
 REASONING_RESERVE = 512   # headroom for <think> tokens counted against context
 MIN_EFFECTIVE_TOKENS = 128
 
@@ -409,7 +409,115 @@ def append_index(csv_path, config, throughput, ttft_vals, budget):
         )
 
 
+# ── Summaries ─────────────────────────────────────────────────────────────────
+
+
+def _read_index_rows(csv_path):
+    if not csv_path.exists():
+        return []
+    with open(csv_path, newline="") as f:
+        return list(csv.DictReader(f))
+
+
+def _group_median(rows, key_fields):
+    """Group rows by key_fields; median across repeats for each metric."""
+    groups = {}
+    for r in rows:
+        k = tuple(r[f] for f in key_fields)
+        groups.setdefault(k, []).append(r)
+    out = []
+    for k, rs in groups.items():
+        def med(field):
+            vals = [float(r[field]) for r in rs]
+            return percentile(vals, 50)
+        out.append(
+            {
+                **dict(zip(key_fields, k)),
+                "agg_tok_s": med("agg_tok_s"),
+                "ttft_p50": med("ttft_p50"),
+                "ttft_p95": med("ttft_p95"),
+                "lat_p50": med("lat_p50"),
+                "lat_p95": med("lat_p95"),
+                "decode_p50": med("decode_p50"),
+                "decode_p95": med("decode_p95"),
+                "errors": sum(int(float(r["errors"])) for r in rs),
+                "reps": len(rs),
+            }
+        )
+    return sorted(out, key=lambda g: (-float(g["input_frac"]), -int(g["concurrency"]),
+                                      -int(g["max_tokens"]), g["stream"] == "True"))
+
+
+def _fmt_summary(groups, show_ctx=False):
+    hdr_ctx = "ctx      " if show_ctx else ""
+    lines = [
+        f"{hdr_ctx}in_frac  c   mt     stream | agg_tok/s  ttft_p50  ttft_p95 | lat_p50  lat_p95 | dec_tok/s p50→p95",
+        "-" * (105 if show_ctx else 98),
+    ]
+    for g in groups:
+        ctx_cell = f"{g['context']:<9}" if show_ctx else ""
+        err = f"  ⚠{g['errors']}err" if int(g["errors"]) else ""
+        lines.append(
+            f"{ctx_cell}{float(g['input_frac']):<8}"
+            f"{int(g['concurrency']):<4}"
+            f"{int(g['max_tokens']):<7}"
+            f"{'on' if g['stream'] == 'True' else 'off':<7}| "
+            f"{g['agg_tok_s']:>8.0f}  "
+            f"{g['ttft_p50']:>8.1f}  {g['ttft_p95']:>8.1f} | "
+            f"{g['lat_p50']:>7.1f}  {g['lat_p95']:>7.1f} | "
+            f"{g['decode_p50']:>5.0f} → {g['decode_p95']:<5.0f}{err}"
+        )
+    return "\n".join(lines)
+
+
+def _best_config_line(groups):
+    best = max(groups, key=lambda g: g["agg_tok_s"])
+    stream = "on" if best["stream"] == "True" else "off"
+    return (
+        f"  BEST: in_frac={best['input_frac']} c={best['concurrency']} "
+        f"mt={best['max_tokens']} stream={stream} → "
+        f"{best['agg_tok_s']:.0f} tok/s aggregate"
+    )
+
+
+def write_summaries(results_dir, csv_path):
+    rows = _read_index_rows(csv_path)
+    if not rows:
+        return
+
+    key = ("context", "input_frac", "concurrency", "max_tokens", "stream")
+    model = re.sub(r"-\d{8}$", "", results_dir.name.replace("Test-", "", 1))
+
+    # Per-context summaries
+    contexts = sorted({r["context"] for r in rows}, key=int)
+    for ctx in contexts:
+        ctx_groups = _group_median([r for r in rows if r["context"] == ctx], key)
+        n_batches = sum(g["reps"] for g in ctx_groups)
+        total_err = sum(int(g["errors"]) for g in ctx_groups)
+        with open(results_dir / f"summary-ctx{ctx}.log", "w") as f:
+            f.write(f"# Summary ctx={ctx} — {model}\n")
+            f.write(f"# generated {datetime.now().strftime('%Y-%m-%d %H:%M')} · "
+                    f"{n_batches} batches · {total_err} errors\n\n")
+            f.write(_fmt_summary(ctx_groups) + "\n\n")
+            f.write(_best_config_line(ctx_groups) + "\n")
+
+    # All-contexts summary
+    all_groups = _group_median(rows, key)
+    with open(results_dir / "summary-all-contexts.log", "w") as f:
+        f.write(f"# Summary — all contexts — {model}\n")
+        f.write(f"# generated {datetime.now().strftime('%Y-%m-%d %H:%M')} · "
+                f"{len(rows)} batches · {sum(int(float(r['errors'])) for r in rows)} errors\n\n")
+        f.write(_fmt_summary(all_groups, show_ctx=True) + "\n")
+        f.write("\nBest config per context:\n")
+        for ctx in contexts:
+            f.write(f"context {ctx}:\n")
+            f.write(_best_config_line([g for g in all_groups if g["context"] == ctx]) + "\n")
+
+
 # ── Main ──────────────────────────────────────────────────────────────────────
+
+
+
 
 
 async def main():
@@ -612,6 +720,8 @@ async def main():
                                 )
                             )
         await asyncio.gather(*tasks)
+
+    write_summaries(results_dir, csv_path)
 
     print(f"\nDone. Results in {results_dir}/")
 

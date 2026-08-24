@@ -25,6 +25,8 @@ Results stored in `Tests/results/Test-{MODEL}-{YYYYMMDD}/`:
 - `ctx{N}.log` — human-readable tables per context
 - `ctx{N}.jsonl` — per-request records (plot-ready)
 - `index.csv` — append-only summary (one row per batch)
+- `summary-ctx{N}.log` — per-context rollup: median across repeats per config group, TTFT p50/p95, best config
+- `summary-all-contexts.log` — cross-context comparison (regenerated from index.csv after each sweep) + best config per context
 
 ### Parameters
 
