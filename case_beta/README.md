@@ -55,7 +55,7 @@ Client → https://llm.yacodata.com:443
 |---------|---------------|
 | **Model-based routing** | AI Gateway Controller via `x-ai-eg-model` header |
 | **Token metering** | AIGatewayRoute `llmRequestCosts` (input/output/total) |
-| **Rate limiting** | BackendTrafficPolicy (30 req/min) |
+| **Rate limiting** | BackendTrafficPolicy (100 req/min) |
 | **EPP scheduling** | KServe endpoint picker (custom scorer weights in `endpoint-picker-config.yaml`) |
 | **InferencePool** | Gateway API Inference Extension CRD |
 | **CORS** | SecurityPolicy for NextChat origins |
@@ -129,7 +129,7 @@ Deployment is fully automated by [k8s_deploy.sh](k8s_deploy.sh) (run after [k8s_
 20. **LLMInferenceService** — model + workload combined
 21. **Backend + AIServiceBackend** — Backend points to the InferencePool created by LLMInferenceService
 22. **AIGatewayRoute** — header match `x-ai-eg-model: casperhansen/deepseek-r1-distill-qwen-32b-awq`
-23. **Rate limiting** — BackendTrafficPolicy (30 req/min)
+23. **Rate limiting** — BackendTrafficPolicy (100 req/min)
 24. **CORS policy** — allow NextChat origin to call Envoy Gateway
 25. **NextChat frontend + HTTPRoute** — UI on CP node + route through `ai-gateway`
 26. **Set DNS A records** — `llm.yacodata.com` + `chat.yacodata.com` → Hetzner CP public IP
@@ -229,7 +229,8 @@ You should see replies (~31ms for Hetzner ↔ Trooper AI).
 | `envoy-ai-gateway/aigatewayroute.yaml` | AIGatewayRoute (header match → AIServiceBackend) |
 | `envoy-ai-gateway/backend.yaml` | Backend + AIServiceBackend (Backend points to InferencePool) |
 | `envoy-ai-gateway/cors-policy.yaml` | SecurityPolicy (CORS for NextChat origin) |
-| `envoy-ai-gateway/rate-limit.yaml` | BackendTrafficPolicy (30 req/min) |
+| `envoy-ai-gateway/rate-limit.yaml` | BackendTrafficPolicy (100 req/min) |
+| `envoy-ai-gateway/client-traffic-policy.yaml` | ClientTrafficPolicy (request timeout 300s — long decode batches) |
 | `envoy-ai-gateway/httproute-nextchat.yaml` | HTTPRoute routing `chat.yacodata.com` → NextChat |
 | `kserve/llm-inference-service-config-model.yaml` | Model source (HF repo + model name) |
 | `kserve/llm-inference-service-config-workload.yaml` | Workload config (vLLM image, args, resources, GPU scheduling) |
@@ -267,7 +268,7 @@ bash k8s_deploy.sh
 | Cache-aware routing | None | Available (EPP config created, wire in LLMInferenceService to activate) |
 | Load-aware routing | None | Available (same as above) |
 | Token metering | Enabled | Enabled |
-| Rate limiting | None | 30 req/min |
+| Rate limiting | None | 100 req/min |
 | Model updates | Edit Deployment YAML | Edit LLMInferenceServiceConfig |
 
 ---

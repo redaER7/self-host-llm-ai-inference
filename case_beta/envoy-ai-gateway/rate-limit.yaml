@@ -18,5 +18,5 @@ spec:
                   type: Exact
                   value: "casperhansen/deepseek-r1-distill-qwen-32b-awq"
           limit:
-            requests: 30
+            requests: 100
             unit: Minute

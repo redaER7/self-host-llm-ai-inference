@@ -2,8 +2,8 @@
 """bench_matrix.py — interactive matrix sweep for deployed vLLM models.
 
 Usage:
-    python3 Tests/bench_matrix.py
-    python3 Tests/bench_matrix.py --contexts 8192,32768,65536,131072
+    python3 Tests/bench_matrix.py --model casperhansen/deepseek-r1-distill-qwen-32b-awq --contexts 8192
+    python3 Tests/bench_matrix.py --model ... --contexts 8192,32768 --force
     python3 Tests/bench_matrix.py --url https://llm.yacodata.com/v1/chat/completions --dry-run
 """
 
@@ -17,15 +17,18 @@ from prompts import PROMPTS
 DEFAULT_URL = "https://llm.yacodata.com/v1/chat/completions"
 CONTEXTS = [8192, 32768, 131072, 262144]
 INPUT_FRACS = [0.5, 0.8]
-CONCURRENCY_LEVELS = [1, 4, 8, 12, 16, 24, 30]
+CONCURRENCY_LEVELS = [2,4,8]#, 20, 30]
 MAX_TOKENS_BASE = [512, 2048]
 MAX_TOKENS_LONG = 8192
 LONG_CONTEXTS = [131072, 262144]
 STREAM_OPTIONS = [True, False]
-REPEATS = 3
-WARMUP = 1
+REPEATS = 2
+WARMUP = 0
 TTFT_PROBES = 5
 BUDGET_SECONDS = 240
+MAX_CONCURRENT_BATCHES = 5
+REASONING_RESERVE = 512   # headroom for <think> tokens counted against context
+MIN_EFFECTIVE_TOKENS = 128
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -63,7 +66,7 @@ def build_prompt(target_tokens):
 
 def get_results_dir(model_name):
     date_str = datetime.now().strftime("%Y%m%d")
-    return Path(f"Tests/results/Test-{sanitize(model_name)}-{date_str}")
+    return Path(__file__).resolve().parent / "results" / f"Test-{sanitize(model_name)}-{date_str}"
 
 
 def get_tested_contexts(results_dir, contexts):
@@ -429,7 +432,11 @@ async def main():
         default=None,
         help="comma-separated context lengths (default: 8192,32768,131072,262144)",
     )
+    parser.add_argument(
+        "--model", default=None, help="model name (default: prompt interactively)"
+    )
     parser.add_argument("--dry-run", action="store_true", help="print matrix without executing")
+    parser.add_argument("--force", action="store_true", help="overwrite existing results")
     args = parser.parse_args()
 
     # ── Resolve contexts ───────────────────────────────────────────────────
@@ -443,7 +450,9 @@ async def main():
         contexts = CONTEXTS
 
     # ── 1. Model name ─────────────────────────────────────────────────────
-    model_name = input("Model name: ").strip()
+    model_name = args.model
+    if not model_name:
+        model_name = input("Model name: ").strip()
     if not model_name:
         print("ERROR: model name required.")
         sys.exit(1)
@@ -468,9 +477,16 @@ async def main():
         print("ERROR: invalid choice.")
         sys.exit(1)
 
-    if context in tested:
+    if context in tested and not args.force:
         print(f"Context {context} already tested. Skipping.")
         sys.exit(0)
+    if context in tested and args.force:
+        print(f"Context {context} already tested. Overwriting (--force).")
+        log_path = results_dir / f"ctx{context}.log"
+        jsonl_path = results_dir / f"ctx{context}.jsonl"
+        for p in (log_path, jsonl_path):
+            if p.exists():
+                p.unlink()
 
     # ── 4. Sweep ──────────────────────────────────────────────────────────
     url = args.url
@@ -500,11 +516,10 @@ async def main():
                 for max_tokens in max_tokens_list:
                     for stream in STREAM_OPTIONS:
                         for repeat in range(rounds):
-                            is_warmup = repeat == 0
-                            rl = "warmup" if is_warmup else f"rep {repeat}/{args.repeats}"
                             print(
                                 f"  ctx={context}  in={input_tokens}  c={concurrency:>2}  "
-                                f"mt={max_tokens:>5}  stream={'on' if stream else 'off'}  {rl}"
+                                f"mt={max_tokens:>5}  stream={'on' if stream else 'off'}  "
+                                f"rep {repeat + 1}/{args.repeats}"
                             )
         print(f"\nTotal: {total_batches} batches")
         return
@@ -513,90 +528,90 @@ async def main():
     jsonl_path = results_dir / f"ctx{context}.jsonl"
     csv_path = results_dir / "index.csv"
 
+    semaphore = asyncio.Semaphore(MAX_CONCURRENT_BATCHES)
     batch_num = 0
-    async with aiohttp.ClientSession(
-        timeout=aiohttp.ClientTimeout(total=600),
-        connector=aiohttp.TCPConnector(limit=max(CONCURRENCY_LEVELS)),
-    ) as session:
-        for input_frac in INPUT_FRACS:
+
+    async def run_batch(session, batch_num, input_frac, concurrency, max_tokens, stream, repeat):
+        async with semaphore:
             input_tokens = int(context * input_frac)
             prompt = build_prompt(input_tokens)
-            print(
-                f"  input_frac={input_frac}  input_tokens={input_tokens}  "
-                f"prompt_chars={len(prompt)}"
+
+            # Clamp so prompt + output + reasoning reserve fits in max-model-len
+            effective_mt = min(max_tokens, context - input_tokens - REASONING_RESERVE)
+            if effective_mt < MIN_EFFECTIVE_TOKENS:
+                print(
+                    f"  [{batch_num}/{total_batches}] "
+                    f"c={concurrency:>2} mt={max_tokens:>5} "
+                    f"stream={'on' if stream else 'off'}  rep {repeat + 1}/{args.repeats}  "
+                    f"SKIP (in={input_tokens} leaves only {effective_mt} output tokens)"
+                )
+                return
+
+            config = {
+                "context": context,
+                "input_frac": input_frac,
+                "input_tokens": input_tokens,
+                "concurrency": concurrency,
+                "max_tokens": effective_mt,
+                "stream": stream,
+                "repeat": repeat,
+            }
+
+            ttft_results, ttft_vals = await run_ttft_probes(
+                session, url, model_name, prompt, concurrency
             )
 
+            throughput = await run_throughput_batch(
+                session,
+                url,
+                model_name,
+                prompt,
+                concurrency,
+                effective_mt,
+                stream,
+            )
+
+            agg = throughput["agg_tok_s"]
+            budget_ok = (
+                throughput["durations"]
+                and max(throughput["durations"]) <= args.budget
+            )
+            status = "ok" if budget_ok else f"⚠>{args.budget}s"
+            ttft_p50 = percentile(ttft_vals, 50)
+
+            print(
+                f"  [{batch_num}/{total_batches}] "
+                f"c={concurrency:>2} mt={max_tokens:>5} "
+                f"stream={'on' if stream else 'off'}  rep {repeat + 1}/{args.repeats}  "
+                f"ttft={ttft_p50:.1f}s  {agg:>5.0f} tok/s  {status}"
+            )
+
+            with open(log_path, "a") as f:
+                log_batch_header(f, config)
+                log_ttft(f, ttft_results, ttft_vals)
+                log_throughput(f, throughput, stream)
+                log_summary(f, throughput, ttft_vals, args.budget)
+            log_jsonl(jsonl_path, config, ttft_results, throughput, repeat)
+            append_index(csv_path, config, throughput, ttft_vals, args.budget)
+
+    async with aiohttp.ClientSession(
+        timeout=aiohttp.ClientTimeout(total=600),
+        connector=aiohttp.TCPConnector(limit=max(CONCURRENCY_LEVELS) * MAX_CONCURRENT_BATCHES),
+    ) as session:
+        tasks = []
+        for input_frac in INPUT_FRACS:
             for concurrency in CONCURRENCY_LEVELS:
                 for max_tokens in max_tokens_list:
                     for stream in STREAM_OPTIONS:
                         for repeat in range(rounds):
                             batch_num += 1
-                            is_warmup = repeat == 0
-                            repeat_label = (
-                                "warmup"
-                                if is_warmup
-                                else f"rep {repeat}/{args.repeats}"
-                            )
-
-                            config = {
-                                "context": context,
-                                "input_frac": input_frac,
-                                "input_tokens": input_tokens,
-                                "concurrency": concurrency,
-                                "max_tokens": max_tokens,
-                                "stream": stream,
-                                "repeat": repeat,
-                            }
-
-                            label = (
-                                f"  [{batch_num}/{total_batches}] "
-                                f"c={concurrency:>2} mt={max_tokens:>5} "
-                                f"stream={'on' if stream else 'off'}  {repeat_label}"
-                            )
-
-                            ttft_results, ttft_vals = await run_ttft_probes(
-                                session, url, model_name, prompt, concurrency
-                            )
-
-                            throughput = await run_throughput_batch(
-                                session,
-                                url,
-                                model_name,
-                                prompt,
-                                concurrency,
-                                max_tokens,
-                                stream,
-                            )
-
-                            agg = throughput["agg_tok_s"]
-                            budget_ok = (
-                                throughput["durations"]
-                                and max(throughput["durations"]) <= args.budget
-                            )
-                            status = "ok" if budget_ok else f"⚠>{args.budget}s"
-                            ttft_p50 = percentile(ttft_vals, 50)
-
-                            print(
-                                f"{label}  ttft={ttft_p50:.1f}s  "
-                                f"{agg:>5.0f} tok/s  {status}"
-                            )
-
-                            if not is_warmup:
-                                with open(log_path, "a") as f:
-                                    log_batch_header(f, config)
-                                    log_ttft(f, ttft_results, ttft_vals)
-                                    log_throughput(f, throughput, stream)
-                                    log_summary(f, throughput, ttft_vals, args.budget)
-                                log_jsonl(
-                                    jsonl_path,
-                                    config,
-                                    ttft_results,
-                                    throughput,
-                                    repeat,
+                            tasks.append(
+                                run_batch(
+                                    session, batch_num, input_frac,
+                                    concurrency, max_tokens, stream, repeat,
                                 )
-                                append_index(
-                                    csv_path, config, throughput, ttft_vals, args.budget
-                                )
+                            )
+        await asyncio.gather(*tasks)
 
     print(f"\nDone. Results in {results_dir}/")
 

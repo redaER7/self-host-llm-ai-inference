@@ -74,7 +74,7 @@ TTFT probes are always streaming (measures time to first token).
 
 #### Repeats
 
-3 repeats + 1 warmup per config. Warmup run is discarded (not logged). Repeats give percentile stability.
+3 reps per config. No warmup.
 
 ### Batch budget
 
@@ -90,9 +90,11 @@ Each batch (concurrent group) has a wall-clock budget (default 240s). Exceeding 
                        Gemma 4 31B:      8192,32768,131072,262144
                        R1-Distill-32B:   8192,32768,65536
 --budget SECONDS     per-batch budget (default: 240)
---repeats N          repeats per config excl. warmup (default: 3)
+--repeats N          repeats per config (default: 3)
 --dry-run            print full matrix without executing
 ```
+
+Batches run concurrently — up to 10 at a time (configurable via `MAX_CONCURRENT_BATCHES` constant).
 
 ## deploy-context.sh
 
