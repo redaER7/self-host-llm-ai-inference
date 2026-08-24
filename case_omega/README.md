@@ -58,6 +58,10 @@ bash k8s_secrets.sh
 bash k8s_deploy.sh
 ```
 
+Notes:
+- AIGatewayRoute rules set `timeouts.request: 300s` (long decode responses exceed Envoy's 60 s default)
+- Step 9b patches the storage-initializer init-container resources (cpu=4, mem=24Gi) via `kserve/inferenceservice-config-patch.yaml` and restarts the KServe controller
+
 ## Verification
 
 ```bash

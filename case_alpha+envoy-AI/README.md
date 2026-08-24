@@ -70,7 +70,7 @@ Browser ──https──→ llm.yacodata.com / chat.yacodata.com (443)
 | `envoy-ai-gateway/gateway.yaml` | Two HTTPS listeners: `llm.yacodata.com` + `chat.yacodata.com` |
 | `envoy-ai-gateway/certificate.yaml` | ClusterIssuer + Certificate (Let's Encrypt DNS-01) |
 | `envoy-ai-gateway/backend.yaml` | Backend → `vllm-service.alpha.svc.cluster.local:8100` + AIServiceBackend |
-| `envoy-ai-gateway/aigatewayroute.yaml` | AIGatewayRoute with token metering (no header match) |
+| `envoy-ai-gateway/aigatewayroute.yaml` | AIGatewayRoute with token metering (no header match, request timeout 300s) |
 | `envoy-ai-gateway/cors-policy.yaml` | SecurityPolicy (CORS for NextChat origin) |
 | `envoy-ai-gateway/httproute-nextchat.yaml` | HTTPRoute for `chat.yacodata.com` → NextChat |
 | `../frontend/nextchat/deployment.yaml` | NextChat with `CUSTOM_MODELS: casperhansen/deepseek-r1-distill-qwen-14b-awq` (shared) |

@@ -261,7 +261,7 @@ case_gamma/
 ├── k8s_secrets.sh                         # Create all secrets + TLS certificates (run first)
 ├── k8s_deploy.sh                          # Deploy everything (run after secrets)
 ├── envoy-ai-gateway/
-│   ├── aigatewayroute.yaml                # AIGatewayRoute (model routing via x-ai-eg-model)
+│   ├── aigatewayroute.yaml                # AIGatewayRoute (model routing via x-ai-eg-model, request timeout 300s)
 │   ├── backend-qwen7b.yaml                # Backend + AIServiceBackend for 7B
 │   ├── backend-qwen14b.yaml               # Backend + AIServiceBackend for 14B
 │   ├── rate-limit.yaml                    # Per-model request rate limits
@@ -279,6 +279,7 @@ case_gamma/
 │   ├── llm-inference-service-config-workload-qwen7b.yaml  # Workload config for 7B
 │   ├── llm-inference-service-config-workload-qwen14b.yaml # Workload config for 14B
 │   ├── llm-inferenceservice-qwen7b.yaml                   # LLMInferenceService for 7B
+│   ├── inferenceservice-config-patch.yaml                 # storage-initializer resources (cpu=4, mem=24Gi)
 │   └── llm-inferenceservice-qwen14b.yaml                  # LLMInferenceService for 14B
 └── mig/
     ├── configure-mig.sh                   # MIG setup script + systemd installer

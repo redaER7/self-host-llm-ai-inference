@@ -14,12 +14,17 @@ spec:
               value: "meta-llama/Llama-3.1-70B-Instruct"
       backendRefs:
         - name: llama70b-backend
+      timeouts:
+        # Overrides controller default 60s — long non-streaming decode batches run 60-240s
+        request: 300s
     - matches:
         - headers:
             - name: x-ai-eg-model
               value: "mistralai/Mistral-7B-Instruct-v0.3"
       backendRefs:
         - name: mistral7b-backend
+      timeouts:
+        request: 300s
   llmRequestCosts:
     - metadataKey: llm_input_token
       type: InputToken

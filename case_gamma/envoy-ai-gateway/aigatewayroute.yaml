@@ -14,12 +14,17 @@ spec:
               value: "Qwen/Qwen2.5-7B-Instruct-AWQ"
       backendRefs:
         - name: qwen7b-backend
+      timeouts:
+        # Overrides controller default 60s — long non-streaming decode batches run 60-240s
+        request: 300s
     - matches:
         - headers:
             - name: x-ai-eg-model
               value: "Qwen/Qwen2.5-14B-Instruct-AWQ"
       backendRefs:
         - name: qwen14b-backend
+      timeouts:
+        request: 300s
   llmRequestCosts:
     - metadataKey: llm_input_token
       type: InputToken

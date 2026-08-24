@@ -50,6 +50,7 @@ TLS termination happens at the Envoy Gateway proxy (cert-manager + Let's Encrypt
 |---------|---------------|
 | **Model-based routing** | AI Gateway Controller via `x-ai-eg-model` header |
 | **Token metering** | AIGatewayRoute `llmRequestCosts` (input/output/total) |
+| **Request timeout** | AIGatewayRoute rule `timeouts.request: 300s` (long decode responses) |
 | **Rate limiting** | BackendTrafficPolicy (30 req/min) |
 | **EPP scheduling** | KServe endpoint picker — default config (custom scorer weights available, see `endpoint-picker-config.yaml`) |
 | **InferencePool** | Gateway API Inference Extension CRD |
@@ -237,6 +238,7 @@ You should see replies (~31ms for Hetzner ↔ Trooper AI).
 | `kserve/llm-inference-service-config-workload.yaml` | Workload config (vLLM image, args, resources, GPU scheduling) |
 | `kserve/llm-inferenceservice.yaml` | LLMInferenceService (combines model + workload) |
 | `kserve/endpoint-picker-config.yaml` | EPP scheduler scorer weights (available but not wired; see `llm-inferenceservice.yaml` commented block) |
+| `kserve/inferenceservice-config-patch.yaml` | Patch storage-initializer init container resources (cpu=4, mem=24Gi) |
 | `epp-scheduler/` | EPP scorer weights reference |
 
 ---
