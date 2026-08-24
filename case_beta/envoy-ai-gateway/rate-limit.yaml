@@ -16,7 +16,7 @@ spec:
             - headers:
                 - name: x-ai-eg-model
                   type: Exact
-                  value: "Qwen/Qwen3.6-27B"
+                  value: "Qwen/Qwen3.6-27B-FP8"
           limit:
             requests: 100
             unit: Minute

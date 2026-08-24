@@ -25,7 +25,7 @@ spec:
           - vllm.entrypoints.openai.api_server
         args:
           - --model
-          - Qwen/Qwen3.6-27B
+          - Qwen/Qwen3.6-27B-FP8
           - --port
           - "8000"
           - --host

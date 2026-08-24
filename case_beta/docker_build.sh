@@ -4,7 +4,7 @@ export DOCKER_BUILDKIT=1
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REGISTRY=docker-registry.yacodata.com
-REPOSITORY=kserve-vllm-qwen36-27b
+REPOSITORY=kserve-vllm-qwen36-27b-fp8
 TAG=0.1
 
 echo "Logging in to registry..."
@@ -14,7 +14,7 @@ echo "${REGISTRY_PASS}" | docker login docker-registry.yacodata.com \
 echo "Building model image..."
 docker build \
     --build-arg BASE_IMAGE=vllm/vllm-openai:latest \
-    --build-arg MODEL_NAME=Qwen/Qwen3.6-27B \
+    --build-arg MODEL_NAME=Qwen/Qwen3.6-27B-FP8 \
     --secret id=hf_token,env=HF_TOKEN \
     -t ${REGISTRY}/${REPOSITORY}:${TAG} \
     -f "${SCRIPT_DIR}/../model-image/Dockerfile" \
