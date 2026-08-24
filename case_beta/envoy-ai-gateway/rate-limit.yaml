@@ -20,7 +20,3 @@ spec:
           limit:
             requests: 100
             unit: Minute
-  timeout:
-    http:
-      # Long decode batches (non-streaming) routinely run 60-240s; default 15s causes 504s
-      requestTimeout: 300s

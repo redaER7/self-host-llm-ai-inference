@@ -226,10 +226,10 @@ You should see replies (~31ms for Hetzner ↔ Trooper AI).
 | `envoy-ai-gateway/envoyproxy.yaml` | EnvoyProxy (CP node scheduling, NodePort service) |
 | `envoy-ai-gateway/envoy-gateway-values.yaml` | EG Helm values (proxy config) |
 | `envoy-ai-gateway/envoy-gateway-values-addon.yaml` | EG addon values (enable InferencePool) |
-| `envoy-ai-gateway/aigatewayroute.yaml` | AIGatewayRoute (header match → AIServiceBackend) |
+| `envoy-ai-gateway/aigatewayroute.yaml` | AIGatewayRoute (header match → AIServiceBackend, request timeout 300s) |
 | `envoy-ai-gateway/backend.yaml` | Backend + AIServiceBackend (Backend points to InferencePool) |
 | `envoy-ai-gateway/cors-policy.yaml` | SecurityPolicy (CORS for NextChat origin) |
-| `envoy-ai-gateway/rate-limit.yaml` | BackendTrafficPolicy (100 req/min + request timeout 300s for long decode batches) |
+| `envoy-ai-gateway/rate-limit.yaml` | BackendTrafficPolicy (100 req/min) |
 | `envoy-ai-gateway/httproute-nextchat.yaml` | HTTPRoute routing `chat.yacodata.com` → NextChat |
 | `kserve/llm-inference-service-config-model.yaml` | Model source (HF repo + model name) |
 | `kserve/llm-inference-service-config-workload.yaml` | Workload config (vLLM image, args, resources, GPU scheduling) |
