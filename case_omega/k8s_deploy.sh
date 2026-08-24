@@ -65,6 +65,10 @@ kubectl patch service "$ENVOY_SVC" -n envoy-gateway-system \
   --type=json \
   -p='[{"op":"replace","path":"/spec/ports/0/nodePort","value":30080}]'
 
+echo "=== 9b. Patch storage-initializer resources + restart controller ==="
+kubectl apply -f "${SCRIPT_DIR}/kserve/inferenceservice-config-patch.yaml"
+kubectl -n kserve rollout restart deployment kserve-controller-manager
+
 echo "=== 10. KServe Model Configs ==="
 kubectl apply -f "${SCRIPT_DIR}/kserve/llm-inference-service-config-model-llama70b.yaml"
 kubectl apply -f "${SCRIPT_DIR}/kserve/llm-inference-service-config-workload-llama70b.yaml"

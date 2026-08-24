@@ -11,6 +11,9 @@ spec:
   rules:
     - backendRefs:
         - name: qwen-aiservicebackend
+      timeouts:
+        # Overrides controller default 60s — long non-streaming decode batches run 60-240s
+        request: 300s
   llmRequestCosts:
     - metadataKey: llm_input_token
       type: InputToken

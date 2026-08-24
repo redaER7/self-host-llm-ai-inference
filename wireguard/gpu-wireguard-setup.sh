@@ -7,6 +7,10 @@ set -euo pipefail
 
 WG_IFACE="wg0"
 WG_NET="10.10.0.2/24"
+# Trooper AI's external firewall only allows inbound UDP 29817-29836 on the GPU
+# node. Pick a ListenPort inside that range or the CP's handshake replies will
+# be dropped and the tunnel never comes up.
+WG_PORT="29817"
 CP_ENDPOINT="<CONTROL_PLANE_PUBLIC_IP>:51820"   # will prompt
 CP_PUBLIC_KEY="<CONTROL_PLANE_PUBLIC_KEY>"      # will prompt
 K3S_CONFIG="/etc/rancher/k3s/config.yaml"
@@ -42,6 +46,7 @@ CP_ENDPOINT="${CP_IP}:51820"
 cat > wg0.conf <<EOF
 [Interface]
 Address = $WG_NET
+ListenPort = $WG_PORT
 PrivateKey = $PRIV
 
 [Peer]
@@ -52,6 +57,8 @@ PersistentKeepalive = 25
 EOF
 
 echo "✅ WireGuard config created."
+echo "ℹ️  This GPU node listens on UDP ${WG_PORT} (add it to the Trooper AI inbound firewall)."
+echo "   On the control plane, add this peer with Endpoint = <GPU_PUBLIC_IP>:${WG_PORT}"
 
 # 5. Enable and start WireGuard
 systemctl enable wg-quick@wg0
