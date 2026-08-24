@@ -11,7 +11,7 @@ spec:
     - matches:
         - headers:
             - name: x-ai-eg-model
-              value: "Qwen/Qwen3.6-27B"
+              value: "casperhansen/deepseek-r1-distill-qwen-32b-awq"
       backendRefs:
         - name: llm-server-backend
   llmRequestCosts:

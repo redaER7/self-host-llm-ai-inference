@@ -3,6 +3,7 @@
 
 Usage:
     python3 Tests/bench_matrix.py
+    python3 Tests/bench_matrix.py --contexts 8192,32768,65536,131072
     python3 Tests/bench_matrix.py --url https://llm.yacodata.com/v1/chat/completions --dry-run
 """
 
@@ -65,9 +66,9 @@ def get_results_dir(model_name):
     return Path(f"Tests/results/Test-{sanitize(model_name)}-{date_str}")
 
 
-def get_tested_contexts(results_dir):
+def get_tested_contexts(results_dir, contexts):
     tested = []
-    for ctx in CONTEXTS:
+    for ctx in contexts:
         if (results_dir / f"ctx{ctx}.log").exists():
             tested.append(ctx)
     return tested
@@ -423,8 +424,23 @@ async def main():
     parser.add_argument(
         "--repeats", type=int, default=REPEATS, help="repeats per config (excl. warmup)"
     )
+    parser.add_argument(
+        "--contexts",
+        default=None,
+        help="comma-separated context lengths (default: 8192,32768,131072,262144)",
+    )
     parser.add_argument("--dry-run", action="store_true", help="print matrix without executing")
     args = parser.parse_args()
+
+    # ── Resolve contexts ───────────────────────────────────────────────────
+    if args.contexts:
+        try:
+            contexts = [int(c.strip()) for c in args.contexts.split(",")]
+        except ValueError:
+            print("ERROR: --contexts must be comma-separated integers.")
+            sys.exit(1)
+    else:
+        contexts = CONTEXTS
 
     # ── 1. Model name ─────────────────────────────────────────────────────
     model_name = input("Model name: ").strip()
@@ -438,16 +454,16 @@ async def main():
     print(f"\nResults dir: {results_dir}/")
 
     # ── 3. Context menu ───────────────────────────────────────────────────
-    tested = get_tested_contexts(results_dir)
+    tested = get_tested_contexts(results_dir, contexts)
     print("\nSelect context to test:")
-    for i, ctx in enumerate(CONTEXTS):
+    for i, ctx in enumerate(contexts):
         mark = " ✓ tested (skip)" if ctx in tested else ""
         print(f"  [{i + 1}] {ctx}{mark}")
 
     choice = input("\n> ").strip()
     try:
         ctx_idx = int(choice) - 1
-        context = CONTEXTS[ctx_idx]
+        context = contexts[ctx_idx]
     except (ValueError, IndexError):
         print("ERROR: invalid choice.")
         sys.exit(1)

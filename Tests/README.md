@@ -30,7 +30,7 @@ Results stored in `Tests/results/Test-{MODEL}-{YYYYMMDD}/`:
 
 #### Context (`--max-model-len`, restart required)
 
-vLLM pre-allocates KV cache at startup from `--max-model-len`. Changing it requires a vLLM restart.
+vLLM pre-allocates KV cache at startup from `--max-model-len`. Changing it requires a vLLM restart. Default ladder (RTX 4090 Pro 48GB):
 
 | Context | Input tokens (50%) | Input tokens (80%) |
 |---|---|---|
@@ -38,6 +38,8 @@ vLLM pre-allocates KV cache at startup from `--max-model-len`. Changing it requi
 | 32 768 | 16 384 | 26 214 |
 | 131 072 | 65 536 | 104 858 |
 | 262 144 | 131 072 | 209 715 |
+
+Override with `--contexts` per model (see CLI flags).
 
 #### Input fraction
 
@@ -81,10 +83,15 @@ Each batch (concurrent group) has a wall-clock budget (default 240s). Exceeding 
 ### CLI flags
 
 ```
---url URL          vLLM endpoint (default: env LLM_URL or https://llm.yacodata.com/v1/chat/completions)
---budget SECONDS   per-batch budget (default: 240)
---repeats N        repeats per config excl. warmup (default: 3)
---dry-run          print full matrix without executing
+--url URL            vLLM endpoint (default: env LLM_URL or https://llm.yacodata.com/v1/chat/completions)
+--contexts LIST      comma-separated context lengths (default: 8192,32768,131072,262144)
+                     per-model ladders:
+                       Qwen3.6-27B:      8192,32768,65536,131072
+                       Gemma 4 31B:      8192,32768,131072,262144
+                       R1-Distill-32B:   8192,32768,65536
+--budget SECONDS     per-batch budget (default: 240)
+--repeats N          repeats per config excl. warmup (default: 3)
+--dry-run            print full matrix without executing
 ```
 
 ## deploy-context.sh

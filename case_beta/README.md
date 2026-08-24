@@ -41,8 +41,9 @@ Client → https://llm.yacodata.com:443
             │
             ▼
            vLLM pod (GPU node, hostNetwork)
-            ├── model: Qwen/Qwen3.6-27B (current)
-            ├── dtype: auto (FP8)
+            ├── model: casperhansen/deepseek-r1-distill-qwen-32b-awq (current)
+            ├── quantization: awq
+            ├── reasoning-parser: deepseek_r1
             ├── max-model-len: 8192 (varied per sweep)
             ├── max-num-seqs: 8
             └── gpu-memory-utilization: 0.90
@@ -114,23 +115,24 @@ Deployment is fully automated by [k8s_deploy.sh](k8s_deploy.sh) (run after [k8s_
 6. **AI Gateway Controller (Helm)** — AI routing, token metering, rate limiting
 7. **GatewayClass + EnvoyProxy + Gateway** — HTTPS listener referencing the cert-manager certificate
 8. **LWS Operator + KServe (monolithic)** — LeaderWorkerSet + LLMInferenceService CRD
-9. **8a — Built-in LLMInferenceServiceConfigs** — EPP scheduler, router, worker templates
-10. **8b — Gateway API Inference Extension CRDs** — `InferencePool` CRD
-11. **8c — Enable InferencePool in Envoy Gateway** — apply addon values + restart EG
-12. **Re-apply Gateways + KServe ingress gateway** — after KServe/IEP CRDs are present
-13. **Patch Envoy proxy service → NodePort 30080** — expose `ai-gateway` externally
-14. **kube-prometheus-stack** — Prometheus + Grafana + node_exporter (monitoring namespace)
-15. **ServiceMonitors** — scrape vLLM + Envoy proxy metrics
-16. **DCGM Exporter** — GPU metrics on GPU node (with ServiceMonitor)
-17. **Grafana dashboards** — vLLM, Envoy Gateway, DCGM ConfigMaps (auto-imported)
-18. **KServe configs** — endpoint-picker + model + workload LLMInferenceServiceConfigs
-19. **LLMInferenceService** — model + workload combined
-20. **Backend + AIServiceBackend** — Backend points to the InferencePool created by LLMInferenceService
-21. **AIGatewayRoute** — header match `x-ai-eg-model: Qwen/Qwen3.6-27B`
-22. **Rate limiting** — BackendTrafficPolicy (30 req/min)
-23. **CORS policy** — allow NextChat origin to call Envoy Gateway
-24. **NextChat frontend + HTTPRoute** — UI on CP node + route through `ai-gateway`
-25. **Set DNS A records** — `llm.yacodata.com` + `chat.yacodata.com` → Hetzner CP public IP
+9. **8a — Patch storage-initializer resources** — apply `inferenceservice-config-patch.yaml`, restart controller
+10. **8b — Built-in LLMInferenceServiceConfigs** — EPP scheduler, router, worker templates
+11. **8c — Gateway API Inference Extension CRDs** — `InferencePool` CRD
+12. **8d — Enable InferencePool in Envoy Gateway** — apply addon values + restart EG
+13. **Re-apply Gateways + KServe ingress gateway** — after KServe/IEP CRDs are present
+14. **Patch Envoy proxy service → NodePort 30080** — expose `ai-gateway` externally
+15. **kube-prometheus-stack** — Prometheus + Grafana + node_exporter (monitoring namespace)
+16. **ServiceMonitors** — scrape vLLM + Envoy proxy metrics
+17. **DCGM Exporter** — GPU metrics on GPU node (with ServiceMonitor)
+18. **Grafana dashboards** — vLLM, Envoy Gateway, DCGM ConfigMaps (auto-imported)
+19. **KServe configs** — endpoint-picker + model + workload LLMInferenceServiceConfigs
+20. **LLMInferenceService** — model + workload combined
+21. **Backend + AIServiceBackend** — Backend points to the InferencePool created by LLMInferenceService
+22. **AIGatewayRoute** — header match `x-ai-eg-model: casperhansen/deepseek-r1-distill-qwen-32b-awq`
+23. **Rate limiting** — BackendTrafficPolicy (30 req/min)
+24. **CORS policy** — allow NextChat origin to call Envoy Gateway
+25. **NextChat frontend + HTTPRoute** — UI on CP node + route through `ai-gateway`
+26. **Set DNS A records** — `llm.yacodata.com` + `chat.yacodata.com` → Hetzner CP public IP
 
 ---
 
@@ -233,6 +235,7 @@ You should see replies (~31ms for Hetzner ↔ Trooper AI).
 | `kserve/llm-inference-service-config-workload.yaml` | Workload config (vLLM image, args, resources, GPU scheduling) |
 | `kserve/llm-inferenceservice.yaml` | LLMInferenceService (combines model + workload) |
 | `kserve/endpoint-picker-config.yaml` | EPP scheduler scorer weights (available but not wired; see `llm-inferenceservice.yaml` commented block) |
+| `kserve/inferenceservice-config-patch.yaml` | Patch storage-initializer init container resources (cpu=4, mem=24Gi) |
 | `epp-scheduler/` | EPP scorer weights reference |
 
 ---
