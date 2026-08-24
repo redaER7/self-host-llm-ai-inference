@@ -29,6 +29,7 @@ BUDGET_SECONDS = 240
 MAX_CONCURRENT_BATCHES = 5
 REASONING_RESERVE = 512   # headroom for <think> tokens counted against context
 MIN_EFFECTIVE_TOKENS = 128
+TTFT_TIERS = [1, 2, 5, 8, 10, 20, 50, 100]   # seconds — best-config latency classes
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -441,6 +442,7 @@ def _group_median(rows, key_fields):
                 "decode_p50": med("decode_p50"),
                 "decode_p95": med("decode_p95"),
                 "errors": sum(int(float(r["errors"])) for r in rs),
+                "requests": sum(int(float(r["success"])) + int(float(r["errors"])) for r in rs),
                 "reps": len(rs),
             }
         )
@@ -470,17 +472,59 @@ def _fmt_summary(groups, show_ctx=False):
     return "\n".join(lines)
 
 
-def _best_config_line(groups):
-    best = max(groups, key=lambda g: g["agg_tok_s"])
+def _best_config(groups):
+    """Highest-throughput config within the tightest TTFT tier that has candidates."""
+    for tier in TTFT_TIERS:
+        pool = [g for g in groups if g["ttft_p50"] < tier]
+        if pool:
+            return {**max(pool, key=lambda g: g["agg_tok_s"]), "tier": f"<{tier}s"}
+    return {**max(groups, key=lambda g: g["agg_tok_s"]), "tier": ">100s"}
+
+
+def _fmt_best_line(best):
     stream = "on" if best["stream"] == "True" else "off"
+    total = int(best["requests"])
+    ok = total - int(best["errors"])
+    pct = 100.0 * ok / total if total else 0.0
+    success = f"{pct:.0f}%" if not int(best["errors"]) else f"{pct:.0f}% ({ok}/{total})"
+    label = (
+        f"BEST (TTFT {best['tier']})"
+        if best["tier"] != ">100s"
+        else "BEST (fallback: no config under 100s TTFT)"
+    )
     return (
-        f"  BEST: in_frac={best['input_frac']} c={best['concurrency']} "
+        f"  {label}: in_frac={best['input_frac']} c={best['concurrency']} "
         f"mt={best['max_tokens']} stream={stream} → "
-        f"{best['agg_tok_s']:.0f} tok/s aggregate"
+        f"{best['agg_tok_s']:.0f} tok/s agg · "
+        f"TTFT {best['ttft_p50']:.1f}s (p95 {best['ttft_p95']:.1f}s) · "
+        f"latency {best['lat_p50']:.1f}s (p95 {best['lat_p95']:.1f}s) · "
+        f"decode {best['decode_p50']:.0f} tok/s · "
+        f"success {success}"
     )
 
 
-def write_summaries(results_dir, csv_path):
+def _campaign_table(best_by_ctx, model, gpu):
+    """Markdown-style comparison table, one row per context (best config)."""
+    lines = [
+        "| Model | GPU | Ctx | Concurrency | TTFT p50 | TTFT p95 | Throughput (agg.) | Per-Stream TPS | p95 Latency | Success | TTFT Class |",
+        "|---|---|---|---|---|---|---|---|---|---|---|",
+    ]
+    for ctx in sorted(best_by_ctx, key=int):
+        b = best_by_ctx[ctx]
+        total = int(b["requests"])
+        ok = total - int(b["errors"])
+        pct = 100.0 * ok / total if total else 0.0
+        success = f"{pct:.0f}%" if not int(b["errors"]) else f"{pct:.0f}% ({ok}/{total})"
+        lines.append(
+            f"| {model} | {gpu} | {ctx} | {b['concurrency']} | "
+            f"{b['ttft_p50']:.1f}s | {b['ttft_p95']:.1f}s | "
+            f"{b['agg_tok_s']:.0f} tok/s | {b['decode_p50']:.0f} tok/s | "
+            f"{b['lat_p95']:.1f}s | {success} | {b['tier']} |"
+        )
+    return "\n".join(lines)
+
+
+def write_summaries(results_dir, csv_path, gpu="—"):
     rows = _read_index_rows(csv_path)
     if not rows:
         return
@@ -494,24 +538,26 @@ def write_summaries(results_dir, csv_path):
         ctx_groups = _group_median([r for r in rows if r["context"] == ctx], key)
         n_batches = sum(g["reps"] for g in ctx_groups)
         total_err = sum(int(g["errors"]) for g in ctx_groups)
+        best = _best_config(ctx_groups)
         with open(results_dir / f"summary-ctx{ctx}.log", "w") as f:
             f.write(f"# Summary ctx={ctx} — {model}\n")
             f.write(f"# generated {datetime.now().strftime('%Y-%m-%d %H:%M')} · "
                     f"{n_batches} batches · {total_err} errors\n\n")
             f.write(_fmt_summary(ctx_groups) + "\n\n")
-            f.write(_best_config_line(ctx_groups) + "\n")
+            f.write(_fmt_best_line(best) + "\n\n")
+            f.write(_campaign_table({ctx: best}, model, gpu) + "\n")
 
     # All-contexts summary
     all_groups = _group_median(rows, key)
+    best_by_ctx = {ctx: _best_config([g for g in all_groups if g["context"] == ctx])
+                   for ctx in contexts}
     with open(results_dir / "summary-all-contexts.log", "w") as f:
         f.write(f"# Summary — all contexts — {model}\n")
+        f.write(f"# GPU: {gpu}\n")
         f.write(f"# generated {datetime.now().strftime('%Y-%m-%d %H:%M')} · "
                 f"{len(rows)} batches · {sum(int(float(r['errors'])) for r in rows)} errors\n\n")
-        f.write(_fmt_summary(all_groups, show_ctx=True) + "\n")
-        f.write("\nBest config per context:\n")
-        for ctx in contexts:
-            f.write(f"context {ctx}:\n")
-            f.write(_best_config_line([g for g in all_groups if g["context"] == ctx]) + "\n")
+        f.write(_fmt_summary(all_groups, show_ctx=True) + "\n\n")
+        f.write(_campaign_table(best_by_ctx, model, gpu) + "\n")
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
@@ -542,6 +588,9 @@ async def main():
     )
     parser.add_argument(
         "--model", default=None, help="model name (default: prompt interactively)"
+    )
+    parser.add_argument(
+        "--gpu", default="—", help='GPU label recorded in summary tables (e.g. "RTX 4090 Pro 48GB")'
     )
     parser.add_argument("--dry-run", action="store_true", help="print matrix without executing")
     parser.add_argument("--force", action="store_true", help="overwrite existing results")
@@ -721,7 +770,7 @@ async def main():
                             )
         await asyncio.gather(*tasks)
 
-    write_summaries(results_dir, csv_path)
+    write_summaries(results_dir, csv_path, gpu=args.gpu)
 
     print(f"\nDone. Results in {results_dir}/")
 
