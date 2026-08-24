@@ -85,7 +85,8 @@ Weights download from HuggingFace on first pod startup. The model-cache volume p
 ### vLLM Notes
 
 - **Qwen3.6-27B**: Uses `--tool-call-parser hermes` for tool calling.
-- **Gemma 4 31B (current)**: QAT w4a16 compressed-tensors checkpoint — quantization auto-detected from config.json, no `--quantization` flag. Supported since vLLM 0.19.1 (plain `:latest` image). ⚠ vLLM does not yet exploit SWA layers for KV sizing — cap `--max-model-len` at ~32768 on this GPU; longer ladders fail to allocate despite the model's native 256K context. No reasoning parser needed.
+- **Gemma 4 31B (current)**: QAT w4a16 compressed-tensors checkpoint — quantization auto-detected from config.json, no `--quantization` flag. ⚠ vLLM does not yet exploit SWA layers for KV sizing — cap `--max-model-len` at ~32768 on this GPU; longer ladders fail to allocate despite the model's native 256K context. No reasoning parser needed.
+  - **Startup pin**: the workload container runs `pip install transformers==5.14.1` before launching vLLM — vLLM 0.27.1 crashes with transformers ≥ 5.15 (`AmbiguousGlobalPerLayerAttributeError: head_dim`). Revert the command override to plain `python3 -m vllm.entrypoints.openai.api_server` once fixed upstream (or switch to a dedicated `gemma4-*` image). Adds ~20–30 s to pod start.
 - **DeepSeek-R1-Distill-32B**: Always emits `<think>…</think>` reasoning blocks. Use `--reasoning-parser deepseek_r1`. No way to disable reasoning mode — decode numbers include thinking tokens.
 
 ### Software Stack
