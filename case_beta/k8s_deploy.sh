@@ -136,11 +136,8 @@ kubectl apply -f "${SCRIPT_DIR}/envoy-ai-gateway/backend.yaml"
 echo "=== 17. AIGatewayRoute ==="
 kubectl apply -f "${SCRIPT_DIR}/envoy-ai-gateway/aigatewayroute.yaml"
 
-echo "=== 18. Rate Limiting ==="
+echo "=== 18. Rate Limiting + request timeout ==="
 kubectl apply -f "${SCRIPT_DIR}/envoy-ai-gateway/rate-limit.yaml"
-
-echo "=== 18a. Client Traffic Policy (request timeout 300s) ==="
-kubectl apply -f "${SCRIPT_DIR}/envoy-ai-gateway/client-traffic-policy.yaml"
 
 echo "=== 19. CORS policy ==="
 kubectl apply -f "${SCRIPT_DIR}/envoy-ai-gateway/cors-policy.yaml"
