@@ -5,5 +5,5 @@ metadata:
   namespace: beta
 spec:
   model:
-    uri: hf://google/gemma-4-31B-it-qat-w4a16-ct
-    name: google/gemma-4-31B-it-qat-w4a16-ct
+    uri: hf://Qwen/Qwen3.6-27B
+    name: Qwen/Qwen3.6-27B
