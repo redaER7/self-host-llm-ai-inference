@@ -47,9 +47,9 @@ Each parameter below is defined, with the mechanism it exercises and how to read
 
 ### Execution model
 
-Batches run **concurrently** — up to `MAX_CONCURRENT_BATCHES` batches at once via an asyncio semaphore. Within each batch, requests fire simultaneously (its configured concurrency level), preceded by streaming TTFT probes.
+Batches run **sequentially** — one batch at a time. The only source of concurrency is within a batch: requests fire simultaneously (its configured concurrency level), preceded by streaming TTFT probes.
 
-⚠ Because batches overlap, measurements reflect *mixed* load when the server is shared: a c=2 batch running next to a c=8 batch sees more than 2 concurrent requests. Treat absolute numbers as campaign-level, not lab-isolated.
+Each batch therefore measures an isolated configuration: the server sees exactly `concurrency` simultaneous requests during the throughput phase, so per-config `agg_tok_s`, TTFT, and budget checks are directly comparable across the matrix.
 
 ### Batch budget
 
@@ -78,7 +78,9 @@ Rule of thumb: use `agg_tok_s` for capacity planning, `ttft_p50/p95` for UX, `de
 --budget SECONDS     per-batch budget (default: 240)
 --repeats N          repeats per config (default in script)
 --dry-run            print full matrix without executing
---force              delete existing ctx{N}.log/.jsonl for the chosen context and rerun
+--force              redo everything for the chosen context: deletes its ctx{N}.log/.jsonl and purges its rows from index.csv (clean slate)
+--resume             continue an interrupted sweep: completed batches (rows already in index.csv) are skipped, missing ones run; prompt seeds are position-based so resumed batches reproduce identical prompts
+--shared-prompt      legacy mode: one identical prompt for every request — lets vLLM prefix cache dedupe prefill (TTFT becomes optimistic); default is per-request randomized prompts (cache-busting)
 ```
 
 ## deploy-context.sh

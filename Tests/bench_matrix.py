@@ -7,17 +7,18 @@ Usage:
     python3 Tests/bench_matrix.py --url https://llm.yacodata.com/v1/chat/completions --dry-run
 """
 
-import asyncio, aiohttp, json, os, random, re, sys, time, csv, argparse
+import asyncio, aiohttp, json, os, random, sys, time, csv, argparse
 from datetime import datetime
 from pathlib import Path
 from prompts import PROMPTS
+from PostProcess import TTFT_TIERS, append_index, percentile, write_summaries
 
 # ── Defaults ──────────────────────────────────────────────────────────────────
 
 DEFAULT_URL = "https://llm.yacodata.com/v1/chat/completions"
 CONTEXTS = [8192, 32768, 131072, 262144]
-INPUT_FRACS = [0.5, 0.8]
-CONCURRENCY_LEVELS = [2,4,8,16]
+INPUT_FRACS = [0.1,0.15,0.3]
+CONCURRENCY_LEVELS = [4,8,16]
 MAX_TOKENS_BASE = [512, 2048]
 MAX_TOKENS_LONG = 8192
 LONG_CONTEXTS = [131072, 262144]
@@ -26,20 +27,12 @@ REPEATS = 1
 WARMUP = 0
 TTFT_PROBES = 5
 BUDGET_SECONDS = 240
-MAX_CONCURRENT_BATCHES = 5
 REASONING_RESERVE = 512   # headroom for <think> tokens counted against context
 MIN_EFFECTIVE_TOKENS = 128
-TTFT_TIERS = [1, 2, 5, 8, 10, 20, 50, 100]   # seconds — best-config latency classes
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 
-def percentile(data, p):
-    if not data:
-        return 0
-    s = sorted(data)
-    k = max(0, min(len(s) - 1, int(len(s) * p / 100)))
-    return s[k]
 
 
 def fmt_pct(data):
@@ -52,14 +45,24 @@ def sanitize(name):
     return "".join(c if c.isalnum() or c in "-_" else "-" for c in name)
 
 
-def build_prompt(target_tokens):
-    """Build a prompt of approximately target_tokens by repeating PROMPTS."""
+def build_prompt(target_tokens, seed=None):
+    """Build a prompt of approximately target_tokens by repeating PROMPTS.
+
+    With a seed, the PROMPTS pool is shuffled first so each seed yields a
+    different block order (same length) — busts vLLM prefix-cache hits while
+    keeping the token budget exact.
+    """
     target_chars = target_tokens * 4
     parts = []
     total = 0
     i = 0
+    if seed is not None:
+        prompts = PROMPTS.copy()
+        random.Random(seed).shuffle(prompts)
+    else:
+        prompts = PROMPTS
     while total < target_chars:
-        parts.append(PROMPTS[i % len(PROMPTS)])
+        parts.append(prompts[i % len(prompts)])
         total += len(parts[-1]) + 1
         i += 1
     return "\n".join(parts)[:target_chars]
@@ -188,12 +191,12 @@ async def send_streaming_full(session, url, idx, payload):
 # ── Batch runners ─────────────────────────────────────────────────────────────
 
 
-async def run_ttft_probes(session, url, model, prompt, concurrency, n_probes=5):
+async def run_ttft_probes(session, url, model, prompt_seed, concurrency, n_probes=5):
     tasks = []
     for i in range(min(concurrency, n_probes)):
         payload = {
             "model": model,
-            "messages": [{"role": "user", "content": prompt}],
+            "messages": [{"role": "user", "content": build_prompt(*prompt_seed(i))}],
             "max_tokens": random.randint(100, 1000),
         }
         tasks.append(send_streaming_ttft(session, url, i + 1, payload))
@@ -202,12 +205,12 @@ async def run_ttft_probes(session, url, model, prompt, concurrency, n_probes=5):
     return results, ttft_vals
 
 
-async def run_throughput_batch(session, url, model, prompt, concurrency, max_tokens, stream):
+async def run_throughput_batch(session, url, model, prompt_seed, concurrency, max_tokens, stream):
     tasks = []
     for i in range(concurrency):
         payload = {
             "model": model,
-            "messages": [{"role": "user", "content": prompt}],
+            "messages": [{"role": "user", "content": build_prompt(*prompt_seed(i))}],
             "max_tokens": max_tokens,
         }
         if stream:
@@ -346,220 +349,6 @@ def log_jsonl(jsonl_path, config, ttft_results, throughput, round_num):
             )
 
 
-def append_index(csv_path, config, throughput, ttft_vals, budget):
-    file_exists = csv_path.exists()
-    with open(csv_path, "a", newline="") as f:
-        writer = csv.writer(f)
-        if not file_exists:
-            writer.writerow(
-                [
-                    "context",
-                    "input_frac",
-                    "input_tokens",
-                    "concurrency",
-                    "max_tokens",
-                    "stream",
-                    "repeat",
-                    "success",
-                    "errors",
-                    "agg_req_s",
-                    "agg_tok_s",
-                    "ttft_p50",
-                    "ttft_p95",
-                    "lat_p50",
-                    "lat_p95",
-                    "decode_p50",
-                    "decode_p95",
-                    "budget_exceeded",
-                    "timestamp",
-                ]
-            )
-        lat_p50 = percentile(throughput["durations"], 50)
-        lat_p95 = percentile(throughput["durations"], 95)
-        decode_p50 = percentile(throughput["tok_rates"], 50)
-        decode_p95 = percentile(throughput["tok_rates"], 95)
-        ttft_p50 = percentile(ttft_vals, 50) if ttft_vals else 0
-        ttft_p95 = percentile(ttft_vals, 95) if ttft_vals else 0
-        budget_exceeded = (
-            "yes"
-            if throughput["durations"] and max(throughput["durations"]) > budget
-            else "no"
-        )
-        writer.writerow(
-            [
-                config["context"],
-                config["input_frac"],
-                config["input_tokens"],
-                config["concurrency"],
-                config["max_tokens"],
-                config["stream"],
-                config["repeat"],
-                throughput["success"],
-                throughput["errors"],
-                f"{throughput['agg_req_s']:.2f}",
-                f"{throughput['agg_tok_s']:.0f}",
-                f"{ttft_p50:.2f}",
-                f"{ttft_p95:.2f}",
-                f"{lat_p50:.1f}",
-                f"{lat_p95:.1f}",
-                f"{decode_p50:.1f}",
-                f"{decode_p95:.1f}",
-                budget_exceeded,
-                datetime.now().isoformat(),
-            ]
-        )
-
-
-# ── Summaries ─────────────────────────────────────────────────────────────────
-
-
-def _read_index_rows(csv_path):
-    if not csv_path.exists():
-        return []
-    with open(csv_path, newline="") as f:
-        return list(csv.DictReader(f))
-
-
-def _group_median(rows, key_fields):
-    """Group rows by key_fields; median across repeats for each metric."""
-    groups = {}
-    for r in rows:
-        k = tuple(r[f] for f in key_fields)
-        groups.setdefault(k, []).append(r)
-    out = []
-    for k, rs in groups.items():
-        def med(field):
-            vals = [float(r[field]) for r in rs]
-            return percentile(vals, 50)
-        out.append(
-            {
-                **dict(zip(key_fields, k)),
-                "agg_tok_s": med("agg_tok_s"),
-                "ttft_p50": med("ttft_p50"),
-                "ttft_p95": med("ttft_p95"),
-                "lat_p50": med("lat_p50"),
-                "lat_p95": med("lat_p95"),
-                "decode_p50": med("decode_p50"),
-                "decode_p95": med("decode_p95"),
-                "errors": sum(int(float(r["errors"])) for r in rs),
-                "requests": sum(int(float(r["success"])) + int(float(r["errors"])) for r in rs),
-                "reps": len(rs),
-            }
-        )
-    return sorted(out, key=lambda g: (-float(g["input_frac"]), -int(g["concurrency"]),
-                                      -int(g["max_tokens"]), g["stream"] == "True"))
-
-
-def _fmt_summary(groups, show_ctx=False):
-    hdr_ctx = "ctx      " if show_ctx else ""
-    lines = [
-        f"{hdr_ctx}in_frac  c   mt     stream | agg_tok/s  ttft_p50  ttft_p95 | lat_p50  lat_p95 | dec_tok/s p50→p95",
-        "-" * (105 if show_ctx else 98),
-    ]
-    for g in groups:
-        ctx_cell = f"{g['context']:<9}" if show_ctx else ""
-        err = f"  ⚠{g['errors']}err" if int(g["errors"]) else ""
-        lines.append(
-            f"{ctx_cell}{float(g['input_frac']):<8}"
-            f"{int(g['concurrency']):<4}"
-            f"{int(g['max_tokens']):<7}"
-            f"{'on' if g['stream'] == 'True' else 'off':<7}| "
-            f"{g['agg_tok_s']:>8.0f}  "
-            f"{g['ttft_p50']:>8.1f}  {g['ttft_p95']:>8.1f} | "
-            f"{g['lat_p50']:>7.1f}  {g['lat_p95']:>7.1f} | "
-            f"{g['decode_p50']:>5.0f} → {g['decode_p95']:<5.0f}{err}"
-        )
-    return "\n".join(lines)
-
-
-def _best_config(groups):
-    """Highest-throughput config within the tightest TTFT tier that has candidates."""
-    for tier in TTFT_TIERS:
-        pool = [g for g in groups if g["ttft_p50"] < tier]
-        if pool:
-            return {**max(pool, key=lambda g: g["agg_tok_s"]), "tier": f"<{tier}s"}
-    return {**max(groups, key=lambda g: g["agg_tok_s"]), "tier": ">100s"}
-
-
-def _fmt_best_line(best):
-    stream = "on" if best["stream"] == "True" else "off"
-    total = int(best["requests"])
-    ok = total - int(best["errors"])
-    pct = 100.0 * ok / total if total else 0.0
-    success = f"{pct:.0f}%" if not int(best["errors"]) else f"{pct:.0f}% ({ok}/{total})"
-    label = (
-        f"BEST (TTFT {best['tier']})"
-        if best["tier"] != ">100s"
-        else "BEST (fallback: no config under 100s TTFT)"
-    )
-    return (
-        f"  {label}: in_frac={best['input_frac']} c={best['concurrency']} "
-        f"mt={best['max_tokens']} stream={stream} → "
-        f"{best['agg_tok_s']:.0f} tok/s agg · "
-        f"TTFT {best['ttft_p50']:.1f}s (p95 {best['ttft_p95']:.1f}s) · "
-        f"latency {best['lat_p50']:.1f}s (p95 {best['lat_p95']:.1f}s) · "
-        f"decode {best['decode_p50']:.0f} tok/s · "
-        f"success {success}"
-    )
-
-
-def _campaign_table(best_by_ctx, model, gpu):
-    """Markdown-style comparison table, one row per context (best config)."""
-    lines = [
-        "| Model | GPU | Ctx | Concurrency | TTFT p50 | TTFT p95 | Throughput (agg.) | Per-Stream TPS | p95 Latency | Success | TTFT Class |",
-        "|---|---|---|---|---|---|---|---|---|---|---|",
-    ]
-    for ctx in sorted(best_by_ctx, key=int):
-        b = best_by_ctx[ctx]
-        total = int(b["requests"])
-        ok = total - int(b["errors"])
-        pct = 100.0 * ok / total if total else 0.0
-        success = f"{pct:.0f}%" if not int(b["errors"]) else f"{pct:.0f}% ({ok}/{total})"
-        lines.append(
-            f"| {model} | {gpu} | {ctx} | {b['concurrency']} | "
-            f"{b['ttft_p50']:.1f}s | {b['ttft_p95']:.1f}s | "
-            f"{b['agg_tok_s']:.0f} tok/s | {b['decode_p50']:.0f} tok/s | "
-            f"{b['lat_p95']:.1f}s | {success} | {b['tier']} |"
-        )
-    return "\n".join(lines)
-
-
-def write_summaries(results_dir, csv_path, gpu="—"):
-    rows = _read_index_rows(csv_path)
-    if not rows:
-        return
-
-    key = ("context", "input_frac", "concurrency", "max_tokens", "stream")
-    model = re.sub(r"-\d{8}$", "", results_dir.name.replace("Test-", "", 1))
-
-    # Per-context summaries
-    contexts = sorted({r["context"] for r in rows}, key=int)
-    for ctx in contexts:
-        ctx_groups = _group_median([r for r in rows if r["context"] == ctx], key)
-        n_batches = sum(g["reps"] for g in ctx_groups)
-        total_err = sum(int(g["errors"]) for g in ctx_groups)
-        best = _best_config(ctx_groups)
-        with open(results_dir / f"summary-ctx{ctx}.log", "w") as f:
-            f.write(f"# Summary ctx={ctx} — {model}\n")
-            f.write(f"# generated {datetime.now().strftime('%Y-%m-%d %H:%M')} · "
-                    f"{n_batches} batches · {total_err} errors\n\n")
-            f.write(_fmt_summary(ctx_groups) + "\n\n")
-            f.write(_fmt_best_line(best) + "\n\n")
-            f.write(_campaign_table({ctx: best}, model, gpu) + "\n")
-
-    # All-contexts summary
-    all_groups = _group_median(rows, key)
-    best_by_ctx = {ctx: _best_config([g for g in all_groups if g["context"] == ctx])
-                   for ctx in contexts}
-    with open(results_dir / "summary-all-contexts.log", "w") as f:
-        f.write(f"# Summary — all contexts — {model}\n")
-        f.write(f"# GPU: {gpu}\n")
-        f.write(f"# generated {datetime.now().strftime('%Y-%m-%d %H:%M')} · "
-                f"{len(rows)} batches · {sum(int(float(r['errors'])) for r in rows)} errors\n\n")
-        f.write(_fmt_summary(all_groups, show_ctx=True) + "\n\n")
-        f.write(_campaign_table(best_by_ctx, model, gpu) + "\n")
-
-
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 
@@ -593,8 +382,22 @@ async def main():
         "--gpu", default="—", help='GPU label recorded in summary tables (e.g. "RTX 4090 Pro 48GB")'
     )
     parser.add_argument("--dry-run", action="store_true", help="print matrix without executing")
-    parser.add_argument("--force", action="store_true", help="overwrite existing results")
+    parser.add_argument("--force", action="store_true", help="redo everything for the context (purges its results)")
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="continue an interrupted sweep: keep completed batches, run only the missing ones",
+    )
+    parser.add_argument(
+        "--shared-prompt",
+        action="store_true",
+        help="use one identical prompt for every request (legacy; lets vLLM prefix cache dedupe prefill)",
+    )
     args = parser.parse_args()
+
+    if args.force and args.resume:
+        print("ERROR: --force and --resume are mutually exclusive.")
+        sys.exit(1)
 
     # ── Resolve contexts ───────────────────────────────────────────────────
     if args.contexts:
@@ -634,8 +437,9 @@ async def main():
         print("ERROR: invalid choice.")
         sys.exit(1)
 
-    if context in tested and not args.force:
-        print(f"Context {context} already tested. Skipping.")
+    done_batches = set()
+    if context in tested and not args.force and not args.resume:
+        print(f"Context {context} already tested. Skipping (use --force to redo, --resume to continue).")
         sys.exit(0)
     if context in tested and args.force:
         print(f"Context {context} already tested. Overwriting (--force).")
@@ -644,6 +448,33 @@ async def main():
         for p in (log_path, jsonl_path):
             if p.exists():
                 p.unlink()
+        # Purge this context's rows from index.csv so force is a true clean slate
+        csv_path_force = results_dir / "index.csv"
+        if csv_path_force.exists():
+            with open(csv_path_force, newline="") as f:
+                rows = list(csv.DictReader(f))
+                fieldnames = rows[0].keys() if rows else []
+            kept = [r for r in rows if int(r["context"]) != int(context)]
+            tmp_path = csv_path_force.with_suffix(".tmp")
+            with open(tmp_path, "w", newline="") as f:
+                writer = csv.DictWriter(f, fieldnames=list(fieldnames))
+                writer.writeheader()
+                writer.writerows(kept)
+            tmp_path.replace(csv_path_force)
+    if args.resume and (results_dir / "index.csv").exists():
+        with open(results_dir / "index.csv", newline="") as f:
+            for r in csv.DictReader(f):
+                if int(r["context"]) != int(context):
+                    continue
+                done_batches.add(
+                    (
+                        float(r["input_frac"]),
+                        int(r["concurrency"]),
+                        int(float(r["max_tokens"])),
+                        r["stream"] == "True",
+                        int(r["repeat"]),
+                    )
+                )
 
     # ── 4. Sweep ──────────────────────────────────────────────────────────
     url = args.url
@@ -663,6 +494,18 @@ async def main():
     print(f"  max_tokens: {max_tokens_list}")
     print(f"  concurrency: {CONCURRENCY_LEVELS}")
     print(f"  stream: on, off")
+    print(f"  prompts: {'shared (cache-friendly)' if args.shared_prompt else 'randomized per request (cache-busting)'}")
+    if args.resume and done_batches:
+        n_done = sum(
+            1
+            for input_frac in INPUT_FRACS
+            for concurrency in CONCURRENCY_LEVELS
+            for max_tokens in max_tokens_list
+            for stream in STREAM_OPTIONS
+            for repeat in range(rounds)
+            if (float(input_frac), int(concurrency), int(min(max_tokens, int(context * input_frac) - REASONING_RESERVE)), bool(stream), int(repeat)) in done_batches
+        )
+        print(f"  resume: {n_done}/{total_batches} batches already completed — they will be skipped")
     print(f"  {total_batches} batches  (budget: {args.budget}s each)\n")
 
     if args.dry_run:
@@ -674,7 +517,7 @@ async def main():
                     for stream in STREAM_OPTIONS:
                         for repeat in range(rounds):
                             print(
-                                f"  ctx={context}  in={input_tokens}  c={concurrency:>2}  "
+                                f"  ctx={context}  frac={input_frac}  in={input_tokens}  c={concurrency:>2}  "
                                 f"mt={max_tokens:>5}  stream={'on' if stream else 'off'}  "
                                 f"rep {repeat + 1}/{args.repeats}"
                             )
@@ -685,90 +528,108 @@ async def main():
     jsonl_path = results_dir / f"ctx{context}.jsonl"
     csv_path = results_dir / "index.csv"
 
-    semaphore = asyncio.Semaphore(MAX_CONCURRENT_BATCHES)
     batch_num = 0
 
     async def run_batch(session, batch_num, input_frac, concurrency, max_tokens, stream, repeat):
-        async with semaphore:
-            input_tokens = int(context * input_frac)
-            prompt = build_prompt(input_tokens)
+        input_tokens = int(context * input_frac)
 
-            # Clamp so prompt + output + reasoning reserve fits in max-model-len
-            effective_mt = min(max_tokens, context - input_tokens - REASONING_RESERVE)
-            if effective_mt < MIN_EFFECTIVE_TOKENS:
-                print(
-                    f"  [{batch_num}/{total_batches}] "
-                    f"c={concurrency:>2} mt={max_tokens:>5} "
-                    f"stream={'on' if stream else 'off'}  rep {repeat + 1}/{args.repeats}  "
-                    f"SKIP (in={input_tokens} leaves only {effective_mt} output tokens)"
-                )
-                return
+        # Per-request prompt seeds: deterministic per (batch, repeat, phase, request)
+        # so sweeps are reproducible. With --shared-prompt every request gets the
+        # same unseeded prompt (legacy behavior — vLLM prefix cache will dedupe).
+        if args.shared_prompt:
+            def prompt_seed(i, phase="t"):
+                return (input_tokens,)
+        else:
+            def prompt_seed(i, phase="t"):
+                return (input_tokens, f"{batch_num}-{repeat}-{phase}-{i}")
 
-            config = {
-                "context": context,
-                "input_frac": input_frac,
-                "input_tokens": input_tokens,
-                "concurrency": concurrency,
-                "max_tokens": effective_mt,
-                "stream": stream,
-                "repeat": repeat,
-            }
-
-            ttft_results, ttft_vals = await run_ttft_probes(
-                session, url, model_name, prompt, concurrency
-            )
-
-            throughput = await run_throughput_batch(
-                session,
-                url,
-                model_name,
-                prompt,
-                concurrency,
-                effective_mt,
-                stream,
-            )
-
-            agg = throughput["agg_tok_s"]
-            budget_ok = (
-                throughput["durations"]
-                and max(throughput["durations"]) <= args.budget
-            )
-            status = "ok" if budget_ok else f"⚠>{args.budget}s"
-            ttft_p50 = percentile(ttft_vals, 50)
-
+        # Clamp so prompt + output + reasoning reserve fits in max-model-len
+        effective_mt = min(max_tokens, context - input_tokens - REASONING_RESERVE)
+        if effective_mt < MIN_EFFECTIVE_TOKENS:
             print(
                 f"  [{batch_num}/{total_batches}] "
-                f"c={concurrency:>2} mt={max_tokens:>5} "
+                f"frac={input_frac} c={concurrency:>2} mt={max_tokens:>5} "
                 f"stream={'on' if stream else 'off'}  rep {repeat + 1}/{args.repeats}  "
-                f"ttft={ttft_p50:.1f}s  {agg:>5.0f} tok/s  {status}"
+                f"SKIP (in={input_tokens} leaves only {effective_mt} output tokens)"
             )
+            return
+        if args.resume and (
+            float(input_frac),
+            int(concurrency),
+            int(effective_mt),
+            bool(stream),
+            int(repeat),
+        ) in done_batches:
+            print(
+                f"  [{batch_num}/{total_batches}] "
+                f"frac={input_frac} c={concurrency:>2} mt={max_tokens:>5} "
+                f"stream={'on' if stream else 'off'}  rep {repeat + 1}/{args.repeats}  "
+                "SKIP (already done)"
+            )
+            return
 
-            with open(log_path, "a") as f:
-                log_batch_header(f, config)
-                log_ttft(f, ttft_results, ttft_vals)
-                log_throughput(f, throughput, stream)
-                log_summary(f, throughput, ttft_vals, args.budget)
-            log_jsonl(jsonl_path, config, ttft_results, throughput, repeat)
-            append_index(csv_path, config, throughput, ttft_vals, args.budget)
+        config = {
+            "context": context,
+            "input_frac": input_frac,
+            "input_tokens": input_tokens,
+            "concurrency": concurrency,
+            "max_tokens": effective_mt,
+            "stream": stream,
+            "repeat": repeat,
+        }
+
+        ttft_results, ttft_vals = await run_ttft_probes(
+            session, url, model_name,
+            lambda i: prompt_seed(i, phase="p"), concurrency
+        )
+
+        throughput = await run_throughput_batch(
+            session,
+            url,
+            model_name,
+            prompt_seed,
+            concurrency,
+            effective_mt,
+            stream,
+        )
+
+        agg = throughput["agg_tok_s"]
+        budget_ok = (
+            throughput["durations"]
+            and max(throughput["durations"]) <= args.budget
+        )
+        status = "ok" if budget_ok else f"⚠>{args.budget}s"
+        ttft_p50 = percentile(ttft_vals, 50)
+
+        print(
+            f"  [{batch_num}/{total_batches}] "
+            f"frac={input_frac} c={concurrency:>2} mt={max_tokens:>5} "
+            f"stream={'on' if stream else 'off'}  rep {repeat + 1}/{args.repeats}  "
+            f"ttft={ttft_p50:.1f}s  {agg:>5.0f} tok/s  {status}"
+        )
+
+        with open(log_path, "a") as f:
+            log_batch_header(f, config)
+            log_ttft(f, ttft_results, ttft_vals)
+            log_throughput(f, throughput, stream)
+            log_summary(f, throughput, ttft_vals, args.budget)
+        log_jsonl(jsonl_path, config, ttft_results, throughput, repeat)
+        append_index(csv_path, config, throughput, ttft_vals, args.budget)
 
     async with aiohttp.ClientSession(
         timeout=aiohttp.ClientTimeout(total=600),
-        connector=aiohttp.TCPConnector(limit=max(CONCURRENCY_LEVELS) * MAX_CONCURRENT_BATCHES),
+        connector=aiohttp.TCPConnector(limit=max(CONCURRENCY_LEVELS)),
     ) as session:
-        tasks = []
         for input_frac in INPUT_FRACS:
             for concurrency in CONCURRENCY_LEVELS:
                 for max_tokens in max_tokens_list:
                     for stream in STREAM_OPTIONS:
                         for repeat in range(rounds):
                             batch_num += 1
-                            tasks.append(
-                                run_batch(
-                                    session, batch_num, input_frac,
-                                    concurrency, max_tokens, stream, repeat,
-                                )
+                            await run_batch(
+                                session, batch_num, input_frac,
+                                concurrency, max_tokens, stream, repeat,
                             )
-        await asyncio.gather(*tasks)
 
     write_summaries(results_dir, csv_path, gpu=args.gpu)
 
