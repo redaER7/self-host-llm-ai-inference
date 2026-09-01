@@ -3,7 +3,7 @@ set -euo pipefail
 # ── vars (edit these) ──
 MODEL="Qwen/Qwen3.8-27B"
 GPU="RTX PRO 6000 Blackwell"
-CONTEXT="8192"
+CONTEXT="8192,32768, 131072"
 URL="https://llm.yacodata.com/v1/chat/completions"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"

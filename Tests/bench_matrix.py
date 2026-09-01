@@ -18,13 +18,13 @@ from PostProcess import TTFT_TIERS, append_index, percentile, write_summaries
 
 DEFAULT_URL = "https://llm.yacodata.com/v1/chat/completions"
 CONTEXTS = [8192, 32768, 131072, 262144]
-INPUT_FRACS = [0.1]
+INPUT_FRACS = [0.1,0.15,0.3]
 CONCURRENCY_LEVELS = [2,4,8,16]
 MAX_TOKENS_BASE = [512, 2048]
 MAX_TOKENS_LONG = 8192
 LONG_CONTEXTS = [131072, 262144]
 STREAM_OPTIONS = [True, False]
-REPEATS = 2
+REPEATS = 1
 WARMUP = 1
 TTFT_PROBES = 5
 BUDGET_SECONDS = 240
@@ -44,6 +44,13 @@ def fmt_pct(data):
 
 def sanitize(name):
     return "".join(c if c.isalnum() or c in "-_" else "-" for c in name)
+
+
+def _rep_label(repeat, repeats, warmup=WARMUP):
+    """warmup 1/1, rep 1/2 … when WARMUP>0; falls back to rep 1/N when warmup=0."""
+    if warmup and repeat < warmup:
+        return f"warmup {repeat+1}/{warmup}"
+    return f"rep {repeat+1-warmup}/{repeats}" if warmup else f"rep {repeat+1}/{repeats}"
 
 
 def build_prompt(target_tokens, seed=None):
@@ -545,7 +552,7 @@ async def main():
                                 print(
                                     f"  ctx={context}  frac={input_frac}  in={input_tokens}  c={concurrency:>2}  "
                                     f"mt={max_tokens:>5}  stream={'on' if stream else 'off'}  "
-                                    f"rep {repeat + 1}/{args.repeats}"
+                                    f"{_rep_label(repeat, args.repeats)}"
                                 )
             print(f"\nTotal: {total_batches} batches\n")
             continue
@@ -571,7 +578,7 @@ async def main():
                 print(
                     f"  [{batch_num}/{total_batches}] "
                     f"frac={input_frac} c={concurrency:>2} mt={max_tokens:>5} "
-                    f"stream={'on' if stream else 'off'}  rep {repeat + 1}/{args.repeats}  "
+                    f"stream={'on' if stream else 'off'}  {_rep_label(repeat, args.repeats)}  "
                     f"SKIP (in={input_tokens} leaves only {effective_mt} output tokens)"
                 )
                 return
@@ -585,7 +592,7 @@ async def main():
                 print(
                     f"  [{batch_num}/{total_batches}] "
                     f"frac={input_frac} c={concurrency:>2} mt={max_tokens:>5} "
-                    f"stream={'on' if stream else 'off'}  rep {repeat + 1}/{args.repeats}  "
+                    f"stream={'on' if stream else 'off'}  {_rep_label(repeat, args.repeats)}  "
                     "SKIP (already done)"
                 )
                 return
@@ -626,7 +633,7 @@ async def main():
             print(
                 f"  [{batch_num}/{total_batches}] "
                 f"frac={input_frac} c={concurrency:>2} mt={max_tokens:>5} "
-                f"stream={'on' if stream else 'off'}  rep {repeat + 1}/{args.repeats}  "
+                f"stream={'on' if stream else 'off'}  {_rep_label(repeat, args.repeats)}  "
                 f"ttft={ttft_p50:.1f}s  {agg:>5.0f} tok/s  {status}"
             )
 
