@@ -81,6 +81,7 @@ Rule of thumb: use `agg_tok_s` for capacity planning, `ttft_p50/p95` for UX, `de
 --force              redo everything for the chosen context: deletes its ctx{N}.log/.jsonl and purges its rows from index.csv (clean slate)
 --resume             continue an interrupted sweep: completed batches (rows already in index.csv) are skipped, missing ones run; prompt seeds are position-based so resumed batches reproduce identical prompts
 --shared-prompt      legacy mode: one identical prompt for every request — lets vLLM prefix cache dedupe prefill (TTFT becomes optimistic); default is per-request randomized prompts (cache-busting)
+--api-key KEY        bearer token for third-party providers (or env LLM_API_KEY / TOKEN_HARBOR); added as Authorization: Bearer <key>
 ```
 
 ## deploy-context.sh

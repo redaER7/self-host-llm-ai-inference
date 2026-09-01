@@ -10,6 +10,7 @@ Usage:
 import asyncio, aiohttp, json, os, random, sys, time, csv, argparse
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import urlparse
 from prompts import PROMPTS
 from PostProcess import TTFT_TIERS, append_index, percentile, write_summaries
 
@@ -17,14 +18,14 @@ from PostProcess import TTFT_TIERS, append_index, percentile, write_summaries
 
 DEFAULT_URL = "https://llm.yacodata.com/v1/chat/completions"
 CONTEXTS = [8192, 32768, 131072, 262144]
-INPUT_FRACS = [0.1,0.15,0.3]
-CONCURRENCY_LEVELS = [4,8,16]
+INPUT_FRACS = [0.1]
+CONCURRENCY_LEVELS = [2,4,8,16]
 MAX_TOKENS_BASE = [512, 2048]
 MAX_TOKENS_LONG = 8192
 LONG_CONTEXTS = [131072, 262144]
 STREAM_OPTIONS = [True, False]
-REPEATS = 1
-WARMUP = 0
+REPEATS = 2
+WARMUP = 1
 TTFT_PROBES = 5
 BUDGET_SECONDS = 240
 REASONING_RESERVE = 512   # headroom for <think> tokens counted against context
@@ -68,9 +69,12 @@ def build_prompt(target_tokens, seed=None):
     return "\n".join(parts)[:target_chars]
 
 
-def get_results_dir(model_name):
+def get_results_dir(model_name, url=None):
     date_str = datetime.now().strftime("%Y%m%d")
-    return Path(__file__).resolve().parent / "results" / f"Test-{sanitize(model_name)}-{date_str}"
+    host = urlparse(url).hostname if url else None
+    host = host or "unknown"
+    # host is filesystem-safe (hostname chars), keep dots for readability e.g. llm.yacodata.com
+    return Path(__file__).resolve().parent / "results" / f"Test-{sanitize(model_name)}-{host}-{date_str}"
 
 
 def get_tested_contexts(results_dir, contexts):
@@ -88,9 +92,19 @@ async def send_request(session, url, idx, payload):
     start = time.monotonic()
     try:
         async with session.post(url, json=payload) as resp:
-            body = await resp.json()
             elapsed = time.monotonic() - start
-            usage = body.get("usage", {})
+            try:
+                body = await resp.json()
+            except Exception:
+                body = {}
+            error = None
+            if resp.status != 200:
+                try:
+                    err_text = json.dumps(body) if body else await resp.text()
+                except Exception:
+                    err_text = ""
+                error = f"{resp.status}: {err_text[:500]}"
+            usage = body.get("usage", {}) if isinstance(body, dict) else {}
             tokens = usage.get("completion_tokens", 0)
             return {
                 "idx": idx,
@@ -100,7 +114,7 @@ async def send_request(session, url, idx, payload):
                 "tokens": tokens,
                 "tok_s": tokens / elapsed if elapsed > 0 and tokens else 0,
                 "status": resp.status,
-                "error": None,
+                "error": error,
             }
     except Exception as e:
         elapsed = time.monotonic() - start
@@ -132,7 +146,14 @@ async def send_streaming_ttft(session, url, idx, payload):
                     if ttft is None:
                         ttft = time.monotonic() - start
                     break
-            return {"idx": idx, "ttft": ttft, "status": resp.status, "error": None}
+            error = None
+            if resp.status != 200:
+                try:
+                    err_text = await resp.text()
+                except Exception:
+                    err_text = ""
+                error = f"{resp.status}: {err_text[:500]}"
+            return {"idx": idx, "ttft": ttft, "status": resp.status, "error": error}
     except Exception as e:
         return {"idx": idx, "ttft": None, "status": 0, "error": str(e)}
 
@@ -164,6 +185,13 @@ async def send_streaming_full(session, url, idx, payload):
                         pass
             elapsed = time.monotonic() - start
             tokens = last_usage.get("completion_tokens", 0) if last_usage else 0
+            error = None
+            if resp.status != 200:
+                try:
+                    err_text = await resp.text()
+                except Exception:
+                    err_text = ""
+                error = f"{resp.status}: {err_text[:500]}"
             return {
                 "idx": idx,
                 "max_tokens": payload["max_tokens"],
@@ -172,7 +200,7 @@ async def send_streaming_full(session, url, idx, payload):
                 "tokens": tokens,
                 "tok_s": tokens / elapsed if elapsed > 0 and tokens else 0,
                 "status": resp.status,
-                "error": None,
+                "error": error,
             }
     except Exception as e:
         elapsed = time.monotonic() - start
@@ -258,7 +286,7 @@ def log_ttft(f, ttft_results, ttft_vals):
         s = (
             f"{r['ttft']:.2f}s"
             if r["ttft"] and r["status"] == 200
-            else f"ERR({r.get('error') or r['status']})"
+            else f"ERR({r['status']}: {r.get('error') or 'no body'})"
         )
         f.write(f"  #{r['idx']:>2}  TTFT = {s}\n")
     f.write(f"\n  TTFT: {fmt_pct(ttft_vals)}\n\n")
@@ -272,7 +300,7 @@ def log_throughput(f, throughput, stream):
     )
     f.write("─" * 55 + "\n")
     for r in throughput["results"]:
-        status_str = f"{r['status']}" if r["status"] == 200 else f"ERR({r['error']})"
+        status_str = f"{r['status']}" if r["status"] == 200 else f"ERR({r['status']}: {r.get('error') or 'no body'})"
         f.write(
             f"{r['idx']:>2}  {r['max_tokens']:>7}  {r['duration']:>8.1f}s  "
             f"{r['tokens']:>6}  {r['tok_s']:>8.1f}  {status_str:>6}\n"
@@ -393,7 +421,15 @@ async def main():
         action="store_true",
         help="use one identical prompt for every request (legacy; lets vLLM prefix cache dedupe prefill)",
     )
+    parser.add_argument(
+        "--api-key",
+        default=None,
+        help="Bearer token for third-party providers (or env LLM_API_KEY / TOKEN_HARBOR); added as Authorization: Bearer <key>",
+    )
     args = parser.parse_args()
+    # Resolve API key from env fallbacks (argparse normalizes --api-key and --api_key interchangeably)
+    if not args.api_key:
+        args.api_key = os.environ.get("LLM_API_KEY") or os.environ.get("TOKEN_HARBOR")
 
     if args.force and args.resume:
         print("ERROR: --force and --resume are mutually exclusive.")
@@ -418,7 +454,7 @@ async def main():
         sys.exit(1)
 
     # ── 2. Results dir ────────────────────────────────────────────────────
-    results_dir = get_results_dir(model_name)
+    results_dir = get_results_dir(model_name, args.url)
     results_dir.mkdir(parents=True, exist_ok=True)
     print(f"\nResults dir: {results_dir}/")
 
@@ -495,6 +531,9 @@ async def main():
     print(f"  concurrency: {CONCURRENCY_LEVELS}")
     print(f"  stream: on, off")
     print(f"  prompts: {'shared (cache-friendly)' if args.shared_prompt else 'randomized per request (cache-busting)'}")
+    if args.api_key:
+        src = "--api-key" if "--api-key" in sys.argv or "--api_key" in sys.argv else "env"
+        print(f"  auth: bearer token from {src} (not logged)")
     if args.resume and done_batches:
         n_done = sum(
             1
@@ -616,9 +655,11 @@ async def main():
         log_jsonl(jsonl_path, config, ttft_results, throughput, repeat)
         append_index(csv_path, config, throughput, ttft_vals, args.budget)
 
+    headers = {"Authorization": f"Bearer {args.api_key}"} if args.api_key else None
     async with aiohttp.ClientSession(
         timeout=aiohttp.ClientTimeout(total=600),
         connector=aiohttp.TCPConnector(limit=max(CONCURRENCY_LEVELS)),
+        headers=headers,
     ) as session:
         for input_frac in INPUT_FRACS:
             for concurrency in CONCURRENCY_LEVELS:
