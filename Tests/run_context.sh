@@ -23,5 +23,5 @@ LOG="$RESULTS_DIR/Logs-${SANITIZED}-${SAFE_CTX}-${TS}.log"
 echo "Results dir: $RESULTS_DIR"
 echo "Log: $LOG"
 cd "$SCRIPT_DIR"
-python3 bench_matrix.py --url "$URL" --contexts "$CONTEXT" --model "$MODEL" --gpu "$GPU" --resume > "$LOG" 2>&1
+python3 -u bench_matrix.py --url "$URL" --contexts "$CONTEXT" --model "$MODEL" --gpu "$GPU" --resume 2>&1 | tee "$LOG"
 echo "Done. Log: $LOG"
