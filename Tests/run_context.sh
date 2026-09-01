@@ -20,16 +20,8 @@ TS="$(date +%Y%m%d-%H%M%S)"
 SAFE_CTX="${CONTEXT//,/-}"
 LOG="$RESULTS_DIR/Logs-${SANITIZED}-${SAFE_CTX}-${TS}.log"
 
-# parse --contexts list for menu index (dedicated context → first entry)
-IDX=1
-if [[ "$CONTEXT" == *","* ]]; then
-  IFS=',' read -ra CTXS <<< "$CONTEXT"
-  # for a dedicated run the menu is built from the same list, so first entry is the target;
-  # keep IDX=1 (strictly first) — extensible if you later want CTXS[0] selection logic
-  IDX=1
-fi
-
 echo "Results dir: $RESULTS_DIR"
 echo "Log: $LOG"
-( cd "$SCRIPT_DIR" && printf '%s\n' "$IDX" | python3 bench_matrix.py --url "$URL" --contexts "$CONTEXT" --model "$MODEL" --gpu "$GPU" --resume > "$LOG" 2>&1 & )
-echo "PID $! -> $LOG"
+cd "$SCRIPT_DIR"
+python3 bench_matrix.py --url "$URL" --contexts "$CONTEXT" --model "$MODEL" --gpu "$GPU" --resume > "$LOG" 2>&1
+echo "Done. Log: $LOG"

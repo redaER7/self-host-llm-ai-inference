@@ -458,221 +458,207 @@ async def main():
     results_dir.mkdir(parents=True, exist_ok=True)
     print(f"\nResults dir: {results_dir}/")
 
-    # ── 3. Context menu ───────────────────────────────────────────────────
-    tested = get_tested_contexts(results_dir, contexts)
-    print("\nSelect context to test:")
-    for i, ctx in enumerate(contexts):
-        mark = " ✓ tested (skip)" if ctx in tested else ""
-        print(f"  [{i + 1}] {ctx}{mark}")
+    # ── 3. Sweep over contexts (no interactive menu) ──────────────────────
+    for context in contexts:
+        done_batches = set()
+        tested = get_tested_contexts(results_dir, [context])
+        if context in tested and not args.force and not args.resume:
+            print(f"Context {context} already tested. Skipping (use --force to redo, --resume to continue).")
+            continue
+        if context in tested and args.force:
+            print(f"Context {context} already tested. Overwriting (--force).")
+            log_path = results_dir / f"ctx{context}.log"
+            jsonl_path = results_dir / f"ctx{context}.jsonl"
+            for p in (log_path, jsonl_path):
+                if p.exists():
+                    p.unlink()
+            csv_path_force = results_dir / "index.csv"
+            if csv_path_force.exists():
+                with open(csv_path_force, newline="") as f:
+                    rows = list(csv.DictReader(f))
+                    fieldnames = rows[0].keys() if rows else []
+                kept = [r for r in rows if int(r["context"]) != int(context)]
+                tmp_path = csv_path_force.with_suffix(".tmp")
+                with open(tmp_path, "w", newline="") as f:
+                    writer = csv.DictWriter(f, fieldnames=list(fieldnames))
+                    writer.writeheader()
+                    writer.writerows(kept)
+                tmp_path.replace(csv_path_force)
+        if args.resume and (results_dir / "index.csv").exists():
+            with open(results_dir / "index.csv", newline="") as f:
+                for r in csv.DictReader(f):
+                    if int(r["context"]) != int(context):
+                        continue
+                    done_batches.add(
+                        (
+                            float(r["input_frac"]),
+                            int(r["concurrency"]),
+                            int(float(r["max_tokens"])),
+                            r["stream"] == "True",
+                            int(r["repeat"]),
+                        )
+                    )
 
-    choice = input("\n> ").strip()
-    try:
-        ctx_idx = int(choice) - 1
-        context = contexts[ctx_idx]
-    except (ValueError, IndexError):
-        print("ERROR: invalid choice.")
-        sys.exit(1)
+        # ── 4. Sweep ──────────────────────────────────────────────────────
+        url = args.url
+        max_tokens_list = MAX_TOKENS_BASE + (
+            [MAX_TOKENS_LONG] if context in LONG_CONTEXTS else []
+        )
+        rounds = args.repeats + WARMUP
+        total_batches = (
+            len(INPUT_FRACS)
+            * len(CONCURRENCY_LEVELS)
+            * len(max_tokens_list)
+            * len(STREAM_OPTIONS)
+            * rounds
+        )
 
-    done_batches = set()
-    if context in tested and not args.force and not args.resume:
-        print(f"Context {context} already tested. Skipping (use --force to redo, --resume to continue).")
-        sys.exit(0)
-    if context in tested and args.force:
-        print(f"Context {context} already tested. Overwriting (--force).")
+        print(f"\nRunning sweep for ctx={context}")
+        print(f"  max_tokens: {max_tokens_list}")
+        print(f"  concurrency: {CONCURRENCY_LEVELS}")
+        print(f"  stream: on, off")
+        print(f"  prompts: {'shared (cache-friendly)' if args.shared_prompt else 'randomized per request (cache-busting)'}")
+        if args.api_key:
+            src = "--api-key" if "--api-key" in sys.argv or "--api_key" in sys.argv else "env"
+            print(f"  auth: bearer token from {src} (not logged)")
+        if args.resume and done_batches:
+            n_done = sum(
+                1
+                for input_frac in INPUT_FRACS
+                for concurrency in CONCURRENCY_LEVELS
+                for max_tokens in max_tokens_list
+                for stream in STREAM_OPTIONS
+                for repeat in range(rounds)
+                if (float(input_frac), int(concurrency), int(min(max_tokens, int(context * input_frac) - REASONING_RESERVE)), bool(stream), int(repeat)) in done_batches
+            )
+            print(f"  resume: {n_done}/{total_batches} batches already completed — they will be skipped")
+        print(f"  {total_batches} batches  (budget: {args.budget}s each)\n")
+
+        if args.dry_run:
+            print("─ Dry run ───────────────────────────────────────────────")
+            for input_frac in INPUT_FRACS:
+                input_tokens = int(context * input_frac)
+                for concurrency in CONCURRENCY_LEVELS:
+                    for max_tokens in max_tokens_list:
+                        for stream in STREAM_OPTIONS:
+                            for repeat in range(rounds):
+                                print(
+                                    f"  ctx={context}  frac={input_frac}  in={input_tokens}  c={concurrency:>2}  "
+                                    f"mt={max_tokens:>5}  stream={'on' if stream else 'off'}  "
+                                    f"rep {repeat + 1}/{args.repeats}"
+                                )
+            print(f"\nTotal: {total_batches} batches\n")
+            continue
+
         log_path = results_dir / f"ctx{context}.log"
         jsonl_path = results_dir / f"ctx{context}.jsonl"
-        for p in (log_path, jsonl_path):
-            if p.exists():
-                p.unlink()
-        # Purge this context's rows from index.csv so force is a true clean slate
-        csv_path_force = results_dir / "index.csv"
-        if csv_path_force.exists():
-            with open(csv_path_force, newline="") as f:
-                rows = list(csv.DictReader(f))
-                fieldnames = rows[0].keys() if rows else []
-            kept = [r for r in rows if int(r["context"]) != int(context)]
-            tmp_path = csv_path_force.with_suffix(".tmp")
-            with open(tmp_path, "w", newline="") as f:
-                writer = csv.DictWriter(f, fieldnames=list(fieldnames))
-                writer.writeheader()
-                writer.writerows(kept)
-            tmp_path.replace(csv_path_force)
-    if args.resume and (results_dir / "index.csv").exists():
-        with open(results_dir / "index.csv", newline="") as f:
-            for r in csv.DictReader(f):
-                if int(r["context"]) != int(context):
-                    continue
-                done_batches.add(
-                    (
-                        float(r["input_frac"]),
-                        int(r["concurrency"]),
-                        int(float(r["max_tokens"])),
-                        r["stream"] == "True",
-                        int(r["repeat"]),
-                    )
-                )
+        csv_path = results_dir / "index.csv"
 
-    # ── 4. Sweep ──────────────────────────────────────────────────────────
-    url = args.url
-    max_tokens_list = MAX_TOKENS_BASE + (
-        [MAX_TOKENS_LONG] if context in LONG_CONTEXTS else []
-    )
-    rounds = args.repeats + WARMUP
-    total_batches = (
-        len(INPUT_FRACS)
-        * len(CONCURRENCY_LEVELS)
-        * len(max_tokens_list)
-        * len(STREAM_OPTIONS)
-        * rounds
-    )
+        batch_num = 0
 
-    print(f"\nRunning sweep for ctx={context}")
-    print(f"  max_tokens: {max_tokens_list}")
-    print(f"  concurrency: {CONCURRENCY_LEVELS}")
-    print(f"  stream: on, off")
-    print(f"  prompts: {'shared (cache-friendly)' if args.shared_prompt else 'randomized per request (cache-busting)'}")
-    if args.api_key:
-        src = "--api-key" if "--api-key" in sys.argv or "--api_key" in sys.argv else "env"
-        print(f"  auth: bearer token from {src} (not logged)")
-    if args.resume and done_batches:
-        n_done = sum(
-            1
-            for input_frac in INPUT_FRACS
-            for concurrency in CONCURRENCY_LEVELS
-            for max_tokens in max_tokens_list
-            for stream in STREAM_OPTIONS
-            for repeat in range(rounds)
-            if (float(input_frac), int(concurrency), int(min(max_tokens, int(context * input_frac) - REASONING_RESERVE)), bool(stream), int(repeat)) in done_batches
-        )
-        print(f"  resume: {n_done}/{total_batches} batches already completed — they will be skipped")
-    print(f"  {total_batches} batches  (budget: {args.budget}s each)\n")
-
-    if args.dry_run:
-        print("─ Dry run ───────────────────────────────────────────────")
-        for input_frac in INPUT_FRACS:
+        async def run_batch(session, batch_num, input_frac, concurrency, max_tokens, stream, repeat):
             input_tokens = int(context * input_frac)
-            for concurrency in CONCURRENCY_LEVELS:
-                for max_tokens in max_tokens_list:
-                    for stream in STREAM_OPTIONS:
-                        for repeat in range(rounds):
-                            print(
-                                f"  ctx={context}  frac={input_frac}  in={input_tokens}  c={concurrency:>2}  "
-                                f"mt={max_tokens:>5}  stream={'on' if stream else 'off'}  "
-                                f"rep {repeat + 1}/{args.repeats}"
-                            )
-        print(f"\nTotal: {total_batches} batches")
-        return
 
-    log_path = results_dir / f"ctx{context}.log"
-    jsonl_path = results_dir / f"ctx{context}.jsonl"
-    csv_path = results_dir / "index.csv"
+            if args.shared_prompt:
+                def prompt_seed(i, phase="t"):
+                    return (input_tokens,)
+            else:
+                def prompt_seed(i, phase="t"):
+                    return (input_tokens, f"{batch_num}-{repeat}-{phase}-{i}")
 
-    batch_num = 0
+            effective_mt = min(max_tokens, context - input_tokens - REASONING_RESERVE)
+            if effective_mt < MIN_EFFECTIVE_TOKENS:
+                print(
+                    f"  [{batch_num}/{total_batches}] "
+                    f"frac={input_frac} c={concurrency:>2} mt={max_tokens:>5} "
+                    f"stream={'on' if stream else 'off'}  rep {repeat + 1}/{args.repeats}  "
+                    f"SKIP (in={input_tokens} leaves only {effective_mt} output tokens)"
+                )
+                return
+            if args.resume and (
+                float(input_frac),
+                int(concurrency),
+                int(effective_mt),
+                bool(stream),
+                int(repeat),
+            ) in done_batches:
+                print(
+                    f"  [{batch_num}/{total_batches}] "
+                    f"frac={input_frac} c={concurrency:>2} mt={max_tokens:>5} "
+                    f"stream={'on' if stream else 'off'}  rep {repeat + 1}/{args.repeats}  "
+                    "SKIP (already done)"
+                )
+                return
 
-    async def run_batch(session, batch_num, input_frac, concurrency, max_tokens, stream, repeat):
-        input_tokens = int(context * input_frac)
+            config = {
+                "context": context,
+                "input_frac": input_frac,
+                "input_tokens": input_tokens,
+                "concurrency": concurrency,
+                "max_tokens": effective_mt,
+                "stream": stream,
+                "repeat": repeat,
+            }
 
-        # Per-request prompt seeds: deterministic per (batch, repeat, phase, request)
-        # so sweeps are reproducible. With --shared-prompt every request gets the
-        # same unseeded prompt (legacy behavior — vLLM prefix cache will dedupe).
-        if args.shared_prompt:
-            def prompt_seed(i, phase="t"):
-                return (input_tokens,)
-        else:
-            def prompt_seed(i, phase="t"):
-                return (input_tokens, f"{batch_num}-{repeat}-{phase}-{i}")
+            ttft_results, ttft_vals = await run_ttft_probes(
+                session, url, model_name,
+                lambda i: prompt_seed(i, phase="p"), concurrency
+            )
 
-        # Clamp so prompt + output + reasoning reserve fits in max-model-len
-        effective_mt = min(max_tokens, context - input_tokens - REASONING_RESERVE)
-        if effective_mt < MIN_EFFECTIVE_TOKENS:
+            throughput = await run_throughput_batch(
+                session,
+                url,
+                model_name,
+                prompt_seed,
+                concurrency,
+                effective_mt,
+                stream,
+            )
+
+            agg = throughput["agg_tok_s"]
+            budget_ok = (
+                throughput["durations"]
+                and max(throughput["durations"]) <= args.budget
+            )
+            status = "ok" if budget_ok else f"⚠>{args.budget}s"
+            ttft_p50 = percentile(ttft_vals, 50)
+
             print(
                 f"  [{batch_num}/{total_batches}] "
                 f"frac={input_frac} c={concurrency:>2} mt={max_tokens:>5} "
                 f"stream={'on' if stream else 'off'}  rep {repeat + 1}/{args.repeats}  "
-                f"SKIP (in={input_tokens} leaves only {effective_mt} output tokens)"
+                f"ttft={ttft_p50:.1f}s  {agg:>5.0f} tok/s  {status}"
             )
-            return
-        if args.resume and (
-            float(input_frac),
-            int(concurrency),
-            int(effective_mt),
-            bool(stream),
-            int(repeat),
-        ) in done_batches:
-            print(
-                f"  [{batch_num}/{total_batches}] "
-                f"frac={input_frac} c={concurrency:>2} mt={max_tokens:>5} "
-                f"stream={'on' if stream else 'off'}  rep {repeat + 1}/{args.repeats}  "
-                "SKIP (already done)"
-            )
-            return
 
-        config = {
-            "context": context,
-            "input_frac": input_frac,
-            "input_tokens": input_tokens,
-            "concurrency": concurrency,
-            "max_tokens": effective_mt,
-            "stream": stream,
-            "repeat": repeat,
-        }
+            with open(log_path, "a") as f:
+                log_batch_header(f, config)
+                log_ttft(f, ttft_results, ttft_vals)
+                log_throughput(f, throughput, stream)
+                log_summary(f, throughput, ttft_vals, args.budget)
+            log_jsonl(jsonl_path, config, ttft_results, throughput, repeat)
+            append_index(csv_path, config, throughput, ttft_vals, args.budget)
 
-        ttft_results, ttft_vals = await run_ttft_probes(
-            session, url, model_name,
-            lambda i: prompt_seed(i, phase="p"), concurrency
-        )
+        headers = {"Authorization": f"Bearer {args.api_key}"} if args.api_key else None
+        async with aiohttp.ClientSession(
+            timeout=aiohttp.ClientTimeout(total=600),
+            connector=aiohttp.TCPConnector(limit=max(CONCURRENCY_LEVELS)),
+            headers=headers,
+        ) as session:
+            for input_frac in INPUT_FRACS:
+                for concurrency in CONCURRENCY_LEVELS:
+                    for max_tokens in max_tokens_list:
+                        for stream in STREAM_OPTIONS:
+                            for repeat in range(rounds):
+                                batch_num += 1
+                                await run_batch(
+                                    session, batch_num, input_frac,
+                                    concurrency, max_tokens, stream, repeat,
+                                )
 
-        throughput = await run_throughput_batch(
-            session,
-            url,
-            model_name,
-            prompt_seed,
-            concurrency,
-            effective_mt,
-            stream,
-        )
-
-        agg = throughput["agg_tok_s"]
-        budget_ok = (
-            throughput["durations"]
-            and max(throughput["durations"]) <= args.budget
-        )
-        status = "ok" if budget_ok else f"⚠>{args.budget}s"
-        ttft_p50 = percentile(ttft_vals, 50)
-
-        print(
-            f"  [{batch_num}/{total_batches}] "
-            f"frac={input_frac} c={concurrency:>2} mt={max_tokens:>5} "
-            f"stream={'on' if stream else 'off'}  rep {repeat + 1}/{args.repeats}  "
-            f"ttft={ttft_p50:.1f}s  {agg:>5.0f} tok/s  {status}"
-        )
-
-        with open(log_path, "a") as f:
-            log_batch_header(f, config)
-            log_ttft(f, ttft_results, ttft_vals)
-            log_throughput(f, throughput, stream)
-            log_summary(f, throughput, ttft_vals, args.budget)
-        log_jsonl(jsonl_path, config, ttft_results, throughput, repeat)
-        append_index(csv_path, config, throughput, ttft_vals, args.budget)
-
-    headers = {"Authorization": f"Bearer {args.api_key}"} if args.api_key else None
-    async with aiohttp.ClientSession(
-        timeout=aiohttp.ClientTimeout(total=600),
-        connector=aiohttp.TCPConnector(limit=max(CONCURRENCY_LEVELS)),
-        headers=headers,
-    ) as session:
-        for input_frac in INPUT_FRACS:
-            for concurrency in CONCURRENCY_LEVELS:
-                for max_tokens in max_tokens_list:
-                    for stream in STREAM_OPTIONS:
-                        for repeat in range(rounds):
-                            batch_num += 1
-                            await run_batch(
-                                session, batch_num, input_frac,
-                                concurrency, max_tokens, stream, repeat,
-                            )
-
-    write_summaries(results_dir, csv_path, gpu=args.gpu)
+    if not args.dry_run:
+        csv_path = results_dir / "index.csv"
+        if csv_path.exists():
+            write_summaries(results_dir, csv_path, gpu=args.gpu)
 
     print(f"\nDone. Results in {results_dir}/")
 
