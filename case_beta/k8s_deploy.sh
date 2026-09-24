@@ -111,11 +111,8 @@ kubectl apply -f "${SCRIPT_DIR}/../monitoring/envoy-proxy-service-monitor.yaml"
 echo "=== 12. DCGM Exporter (GPU metrics on GPU node) ==="
 helm repo add gpu-helm-charts https://nvidia.github.io/dcgm-exporter/helm-charts --force-update
 helm upgrade --install dcgm-exporter gpu-helm-charts/dcgm-exporter \
-  --namespace monitoring \
-  -f "${SCRIPT_DIR}/../monitoring/dcgm-exporter-values.yaml" \
-  --set serviceMonitor.enabled=true \
-  --set serviceMonitor.namespace=monitoring \
-  --set serviceMonitor.labels.release=kube-prometheus-stack
+  --namespace monitoring --version 4.8.3 \
+  -f "${SCRIPT_DIR}/../monitoring/dcgm-exporter-values.yaml"
 kubectl wait --timeout=2m -n monitoring pod -l app.kubernetes.io/name=dcgm-exporter --for=condition=Ready 2>/dev/null || true
 
 echo "=== 13. Grafana dashboards (ConfigMaps with grafana_dashboard label) ==="
