@@ -17,14 +17,14 @@ from PostProcess import TTFT_TIERS, append_index, percentile, write_summaries
 # ── Defaults ──────────────────────────────────────────────────────────────────
 
 DEFAULT_URL = "https://llm.yacodata.com/v1/chat/completions"
-CONTEXTS = [8192, 32768, 131072, 262144]
-INPUT_FRACS = [0.1,0.15,0.3]
-CONCURRENCY_LEVELS = [2,4,8,16]
+CONTEXTS = [8192]#, 32768, 131072, 262144]
+INPUT_FRACS = [0.1,0.15]
+CONCURRENCY_LEVELS = [1,2,3,4]
 MAX_TOKENS_BASE = [512, 2048]
 MAX_TOKENS_LONG = 8192
 LONG_CONTEXTS = [131072, 262144]
 STREAM_OPTIONS = [True, False]
-REPEATS = 1
+REPEATS = 3
 WARMUP = 1
 TTFT_PROBES = 5
 BUDGET_SECONDS = 240
