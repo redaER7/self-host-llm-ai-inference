@@ -1,6 +1,6 @@
 # Case β (beta) — Single Model with Envoy AI Gateway + KServe
 
-Envoy AI Gateway → KServe LLMInferenceService → vLLM (Qwen 2.5 32B Instruct AWQ). Control plane on Hetzner CX33, GPU worker on Trooper AI (RTX 3090). Cross-node pod networking via Flannel VXLAN over WireGuard.
+Envoy AI Gateway → KServe LLMInferenceService → vLLM (Qwen3-8B BF16). Control plane on Hetzner CX33, GPU worker on Vast.ai (RTX PRO 4000 Blackwell 24 GB). Cross-node pod networking via Flannel VXLAN over WireGuard.
 
 llm-d is installed by KServe as the router image (via built-in LLMInferenceServiceConfigs) and routes requests to the vLLM worker. With a single replica the EPP scheduler is a pass-through — custom scorer weights (prefix-cache + load-aware) are defined in `kserve/endpoint-picker-config.yaml` but not wired into the LLMInferenceService. Uncomment the `router.scheduler.endpointPickerConfig` block in `kserve/llm-inferenceservice.yaml` when scaling to 2+ replicas.
 
@@ -33,14 +33,14 @@ Client → https://llm.yacodata.com:443
             │
             ▼
            vLLM pod (GPU node, hostNetwork, 10.10.0.2:8000)
-            ├── model: Qwen/Qwen2.5-32B-Instruct-AWQ
-            ├── quantization: awq
-            ├── max-model-len: 8192
-            ├── max-num-seqs: 8
-            └── gpu-memory-utilization: 0.90
+           ├── model: Qwen/Qwen3-8B
+           ├── dtype: bfloat16 (no quantization — 16.4 GiB weights)
+           ├── max-model-len: 4096
+           ├── max-num-seqs: 4
+           └── gpu-memory-utilization: 0.90
 ```
 
-The AI Gateway proxy (Envoy) and KServe controller run on the **control-plane node** (Hetzner). The vLLM pod runs on the **GPU node** (Trooper AI) with `hostNetwork: true`, binding directly to `10.10.0.2:8000`. Cross-node traffic flows over Flannel VXLAN (`UDP 8472`) through a WireGuard tunnel (`10.10.0.0/24`).
+The AI Gateway proxy (Envoy) and KServe controller run on the **control-plane node** (Hetzner). The vLLM pod runs on the **GPU node** (Vast.ai) with `hostNetwork: true`, binding directly to `10.10.0.2:8000`. Cross-node traffic flows over Flannel VXLAN (`UDP 8472`) through a WireGuard tunnel (`10.10.0.0/24`).
 
 TLS termination happens at the Envoy Gateway proxy (cert-manager + Let's Encrypt DNS-01 via Cloudflare).
 
@@ -74,11 +74,11 @@ TLS termination happens at the Envoy Gateway proxy (cert-manager + Let's Encrypt
 
 Same K3s setup as alpha — see [case_alpha/README.md](../case_alpha/README.md#requirements). Control plane on Hetzner CX33 (4 vCPU / 8 GB RAM), GPU worker joined as K3s agent with label `node-role.kubernetes.io/gpu-node`.
 
-### GPU (Trooper AI)
+### GPU (Vast.ai)
   
 | GPU | VRAM | Why |
 |-----|------|-----|
-| **RTX 3090** | 24 GB | Fits Qwen 2.5 32B AWQ (~16 GiB weights) tight on KV cache — reduce max_model_len if needed |
+| **RTX PRO 4000 Blackwell** | 24 GB | Fits Qwen3-8B BF16 (~16 GiB weights) with KV headroom — raise max_model_len / max_num_seqs stepwise to find the scheduling limit (KV-cache lab) |
 
 ### Model Weights
 
@@ -86,12 +86,12 @@ Weights download from HuggingFace on first pod startup. The model-cache volume p
 
 | Property | Value |
 |----------|-------|
-| Model | Qwen/Qwen2.5-32B-Instruct-AWQ |
-| Quantization | AWQ (INT4) |
+| Model | Qwen/Qwen3-8B |
+| Quantization | None (BF16) |
 | Strategy | HF download at startup |
-| Cold start | ~5-6 min (first time), ~10 s (cached) |
-| Download size | ~20 GB |
-| VRAM usage | ~16 GiB weights + ~6 GiB KV cache (at 8192 ctx, batch=8) |
+| Cold start | ~2-3 min (first time, ~16 GB), ~10 s (cached) |
+| Download size | ~16 GB |
+| VRAM usage | ~16 GiB weights + ~2.4 GiB KV cache (at 4096 ctx, batch=4) |
 
 ### Software Stack
 
@@ -103,7 +103,7 @@ Weights download from HuggingFace on first pod startup. The model-cache volume p
 | AI Gateway Controller (Helm) | v1.0.0 | AI routing, token metering, rate limiting |
 | LWS Operator | v0.9+ | LeaderWorkerSet (KServe dependency) |
 | KServe | v0.18+ | LLMInferenceService CRD |
-| vLLM | latest | OpenAI-compatible LLM serving |
+| vLLM | v0.30.0 (pinned; CUDA 13.0 image, sm120 Blackwell support) | OpenAI-compatible LLM serving |
 
 ---
 
@@ -111,7 +111,7 @@ Weights download from HuggingFace on first pod startup. The model-cache volume p
 
 Deployment is fully automated by [k8s_deploy.sh](k8s_deploy.sh) (run after [k8s_secrets.sh](k8s_secrets.sh)). The steps below mirror the script so you know what runs and in what order:
 
-1. **K3s** — Hetzner CP + Trooper AI GPU agent (see [k3s-install.sh](../k8s_control_plane/k3s-install.sh))
+1. **K3s** — Hetzner CP + Vast.ai GPU agent (see [k3s-install.sh](../k8s_control_plane/k3s-install.sh))
 2. **WireGuard tunnel** — Bridge CP and GPU networks. See [WireGuard setup](#wireguard-setup)
 3. **cert-manager** — webhook certificates; creates `envoy-tls-cert` + `chat-tls-cert` (Let's Encrypt DNS-01 via Cloudflare)
 4. **AI Gateway CRDs (Helm)** — AIGatewayRoute CRDs
@@ -131,7 +131,7 @@ Deployment is fully automated by [k8s_deploy.sh](k8s_deploy.sh) (run after [k8s_
 18. **KServe configs** — endpoint-picker + model + workload LLMInferenceServiceConfigs
 19. **LLMInferenceService** — model + workload combined
 20. **Backend + AIServiceBackend** — Backend points to the InferencePool created by LLMInferenceService
-21. **AIGatewayRoute** — header match `x-ai-eg-model: Qwen/Qwen2.5-32B-Instruct-AWQ`
+21. **AIGatewayRoute** — header match `x-ai-eg-model: Qwen/Qwen3-8B`
 22. **Rate limiting** — BackendTrafficPolicy (30 req/min)
 23. **CORS policy** — allow NextChat origin to call Envoy Gateway
 24. **NextChat frontend + HTTPRoute** — UI on CP node + route through `ai-gateway`
@@ -141,14 +141,14 @@ Deployment is fully automated by [k8s_deploy.sh](k8s_deploy.sh) (run after [k8s_
 
 ## WireGuard Setup
 
-Required when CP and GPU nodes are on different networks (e.g. Hetzner + Trooper AI). Skip if all nodes are on the same LAN — Flannel VXLAN works natively.
+Required when CP and GPU nodes are on different networks (e.g. Hetzner + Vast.ai). Skip if all nodes are on the same LAN — Flannel VXLAN works natively.
 
 ### How it works
 
 Flannel uses VXLAN (`UDP 8472`) for pod-to-pod networking across nodes. The CP reaches the GPU node's WireGuard IP (`10.10.0.2`) via a tunnel.
 
 ```
-CP node (Hetzner)                GPU node (Trooper AI)
+CP node (Hetzner)                GPU node (Vast.ai)
 ┌────────────────────┐          ┌────────────────────┐
 │ wg0 (10.10.0.1) ────┼─ tunnel ─┼─→ wg0 (10.10.0.2) │
 │                    │ UDP 51820│                    │
@@ -169,7 +169,7 @@ Open **port 51820/udp** in the Hetzner firewall.
 
 ### Step 2 — GPU node
 
-On the GPU node (Trooper AI), run:
+On the GPU node (Vast.ai), run:
 ```bash
 export CP_NODE_IP=<CP_PUBLIC_IP>
 bash wireguard/gpu-wireguard-setup.sh
@@ -205,7 +205,7 @@ From the CP node:
 ping -c 3 10.10.0.2
 ```
 
-You should see replies (~31ms for Hetzner ↔ Trooper AI).
+You should see replies (a few ms on LAN; tens of ms across Hetzner ↔ Vast.ai regions).
 
 ### Firewall reference (GPU node)
 
