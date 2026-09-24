@@ -18,9 +18,9 @@ curl -s -X POST "https://${DOMAIN}/v1/chat/completions" \
   -H "x-ai-eg-model: ${MODEL}" \
   -d "{
     \"model\": \"${MODEL}\",
-    \"messages\": [{\"role\": \"user\", \"content\": \"Say hello in one word\"}],
-    \"max_tokens\": 50
-  }" | jq .
+    \"messages\": [{\"role\": \"user\", \"content\": \"Say hello in 3 words\"}],
+    \"max_tokens\": 200
+  }" | jq -r '.choices[0].message.content' | sed 's/Ġ/ /g; s/Ċ/\n/g'
 
 echo ""
 echo "=== Test 3: Direct NodePort (bypass TLS) ==="
