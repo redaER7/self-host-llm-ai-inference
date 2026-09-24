@@ -78,47 +78,75 @@ bash test.sh   # expect real answers on tests 1-4
 - Tool-call errors in logs (`hermes` parser vs Qwen3 format) → drop `--enable-auto-tool-choice --tool-call-parser hermes` and re-apply; basic chat/completions is unaffected.
 - 404/route errors through the gateway → header `x-ai-eg-model: Qwen/Qwen3-8B` must match `aigatewayroute.yaml` exactly.
 
-## Practise 2 — Telemetry drill: one load, four lenses (40 min)
+## Practise 2 — Telemetry drill: bench matrix + Grafana (40 min)
 
-Goal: describe the *same* GPU moment in NVML, nvidia-smi, DCGM, and Grafana terms.
+Goal: read the *same* GPU moment across the stack — Grafana dashboards primary,
+the existing `Tests/bench_matrix.py` as the load generator (TTFT probes +
+throughput batches, streaming on/off, JSONL + `index.csv` + summaries in
+`Tests/results/Test-Qwen-Qwen3-8B-<host>-<date>/`).
 
 ```bash
-# Terminal A — raw NVML sampler (in this dir):
-python3 01_nvml_probe.py --interval 1 --duration 300 --out /tmp/nvml.csv
-# Terminal B — nvidia-smi lens:
+# From the repo root. MUST run with cwd=Tests/ (bench_matrix imports prompts/PostProcess):
+cd /Users/redaer/Documents/WORK/00_YACODATA/00_PROSPECTS/self-host-llm-ai-inference/Tests
+python3 bench_matrix.py --model Qwen/Qwen3-8B --contexts 4096 --gpu "RTX PRO 4000 Blackwell 24GB" --dry-run
+# ^ sanity-check the matrix first; then the same command without --dry-run.
+# Payload "model" must equal the deployed model (gateway ext-proc routes on it).
+# For the saturation/backpressure story, widen CONCURRENCY_LEVELS in the script
+# header (default [2]) — e.g. [1,2,4,8].
+
+# Terminal B — nvidia-smi lens during the sweep (on the GPU node):
 nvidia-smi dmon -s pucvmet -d 1 -f /tmp/dmon.log &
-# Terminal C — load sweep (in this dir; hits the gateway, ramps concurrency):
-bash 02_load_sweep.sh https://llm.yacodata.com "Qwen/Qwen3-8B" /tmp/sweep.csv
-# Afterwards compare:
-#   /tmp/nvml.csv  (util, temp, SM/mem clocks, power, VRAM)
-#   /tmp/dmon.log  (smi view of the same window)
-#   Grafana → vLLM dashboard (TTFT, tokens/sec, queue depth, KV cache %)
-#   Grafana → DCGM dashboard (DCGM_FI_DEV_GPU_UTIL, _MEM_COPY_UTIL, _GPU_TEMP,
-#     _SM_CLOCK, _MEM_CLOCK, _POWER_USAGE, _FB_USED, _CLOCK_THROTTLE_REASONS)
+# Meanwhile in Grafana:
+#   vLLM dashboard → TTFT, tokens/sec, request queue depth, KV cache %
+#   DCGM dashboard → DCGM_FI_DEV_GPU_UTIL, _MEM_COPY_UTIL, _GPU_TEMP,
+#     _SM_CLOCK, _MEM_CLOCK, _POWER_USAGE, _FB_USED, _CLOCK_THROTTLE_REASONS
+# Afterwards: benchmark numbers live in the results dir (index.csv, summary-*.log) —
+# quote TTFT p50/p95, agg_tok_s, decode p50/p95 straight from the summaries.
 ```
 
 **What to find and say:** "As concurrency ramps, `tokens/sec` plateaus while `request queue depth` grows — that's backpressure, not degradation. SM clock dips correlated with temp spikes and `CLOCK_THROTTLE_REASONS=thermal` under sustained load are normal protection; the *same* dip at the *same* workload next month is the degradation signal. A rising ECC correctable rate (`DCGM_FI_DEV_ECC_*` / `nvidia-smi -q -d ECC`) is the leading memory-health indicator."
 
 Kill the background `dmon` when done (`kill %1`).
 
-## Practise 3 — KV-cache experiment: find the scheduling limit (30 min)
+**Stretch — raw NVML corroboration (5 min, JD "programmatic telemetry" story):**
+```bash
+# Re-run the sweep, sampling the driver directly via NVML in parallel:
+python3 01_nvml_probe.py --interval 1 --duration 300 --out /tmp/nvml.csv
+# Compare /tmp/nvml.csv (util, temp, SM/mem clocks, power, VRAM, throttle bitmask)
+# against the DCGM panel for the same window — they must agree.
+```
+Interview line: "I cross-checked the exporter against raw NVML — same moment, driver-level numbers, no pipeline in between."
+
+## Practise 3 — KV-cache experiment: context ladder (30 min)
+
+Use the existing `Tests/deploy-context.sh` (patches `--max-model-len`, applies,
+waits for rollout, polls `/v1/models`), then run one matrix rung per context:
 
 ```bash
-# Edit ONLY these two args in kserve/llm-inference-service-config-workload.yaml,
-# re-apply, and record whether the pod schedules + serves:
-# Round A: --max-model-len 8192  --max-num-seqs 4
-# Round B: --max-model-len 8192  --max-num-seqs 8
-# Round C: --max-model-len 16384 --max-num-seqs 4
-kubectl apply -f kserve/llm-inference-service-config-workload.yaml
-kubectl -n beta logs -l app.kubernetes.io/name=llm-server -c main --tail=20 | grep -iE "kv cache|memory|error|available"
+cd /Users/redaer/Documents/WORK/00_YACODATA/00_PROSPECTS/self-host-llm-ai-inference
+# Round A: ctx 8192 (fits: ~4.7 GiB KV at batch 4 + 16 GiB weights)
+bash Tests/deploy-context.sh 8192 beta case_beta/kserve/llm-inference-service-config-workload.yaml
+cd Tests && python3 bench_matrix.py --model Qwen/Qwen3-8B --contexts 8192 --gpu "RTX PRO 4000 Blackwell 24GB" && cd ..
+# Round B: ctx 16384 — watch for KV pressure / scheduler refusal in the pod logs:
+# kubectl -n beta logs -l app.kubernetes.io/name=llm-server -c main --tail=20 | grep -iE "kv cache|memory|error|available"
+# Restore the baseline afterwards:
+bash Tests/deploy-context.sh 4096 beta case_beta/kserve/llm-inference-service-config-workload.yaml
 ```
+
+⚠️ Portability catch: `deploy-context.sh` uses `sed -i ''` (macOS syntax) — on the
+Ubuntu GPU node that invocation fails; run it from your Mac (kubectl context
+pointed at Hetzner CP) or drop the `''`. The script only *patches a copy* in
+`/tmp` and applies it, so the committed manifest is never rewritten — re-apply
+the file from Practise 1 if the live object ever drifts from git.
 
 **Math to recite (Qwen3-8B GQA: 36 layers × 8 KV heads × 128 dim, BF16):**
 ~144 KiB per token of KV → 8192 ctx × 8 seqs ≈ 9.4 GiB KV + 16 GiB weights ≈ over budget → vLLM refuses or evicts. That refusal *is* the lesson: KV cache, not weights, is the capacity lever; `PagedAttention` (vLLM's block manager) raises throughput by packing that fixed budget.
 
-Then toggle `--enable-prefix-caching` off/on and re-run one fixed prompt twice; compare TTFT in Grafana. Say: "prefix hits skip prefill — TTFT drops on repeated system prompts; that's the EPP scorer's cache-awareness when we scale to 2+ replicas."
-
-Restore the file to ctx 4096 / seqs 4 afterwards.
+Then compare prefix-cache behavior with the matrix's built-in switch: one run with
+`--shared-prompt` (identical prompt every request — prefix-cache-friendly, optimistic
+TTFT) vs default (per-request randomized prompts — cache-busting). Say: "prefix hits
+skip prefill — TTFT drops on repeated system prompts; that's the EPP scorer's
+cache-awareness when we scale to 2+ replicas."
 
 ## Practise 4 — Reproducibility mini-lab (30 min)
 
@@ -151,6 +179,7 @@ Expected story: weights ~16 → ~8 GiB, KV headroom doubles, decode (bandwidth-b
 | tokens/sec, 1 req / saturated | |
 | Max ctx×seqs that schedules | |
 | 5× repeat identical? (y/n) | |
+| NVML CSV matches DCGM panel? (y/n, stretch) | |
 
 | Metric (FP8, stretch) | Value |
 |---|---|

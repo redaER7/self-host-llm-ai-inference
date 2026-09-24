@@ -1,0 +1,18 @@
+# dcgm-exporter Helm values — pin the exporter to GPU nodes only.
+# Without nodeSelector/tolerations the DaemonSet lands on the control-plane
+# node (no GPU) and CrashLoops with a bare `exit status 1`.
+# Applied by case_beta/k8s_deploy.sh (step 12) via:
+#   helm upgrade --install dcgm-exporter gpu-helm-charts/dcgm-exporter \
+#     --namespace monitoring \
+#     -f monitoring/dcgm-exporter-values.yaml \
+#     --set serviceMonitor.enabled=true \
+#     --set serviceMonitor.namespace=monitoring \
+#     --set serviceMonitor.labels.release=kube-prometheus-stack
+nodeSelector:
+  node-role.kubernetes.io/gpu-node: "true"
+
+tolerations:
+  - key: "gpu-node"
+    operator: "Equal"
+    value: "true"
+    effect: "NoSchedule"

@@ -112,6 +112,7 @@ echo "=== 12. DCGM Exporter (GPU metrics on GPU node) ==="
 helm repo add gpu-helm-charts https://nvidia.github.io/dcgm-exporter/helm-charts --force-update
 helm upgrade --install dcgm-exporter gpu-helm-charts/dcgm-exporter \
   --namespace monitoring \
+  -f "${SCRIPT_DIR}/../monitoring/dcgm-exporter-values.yaml" \
   --set serviceMonitor.enabled=true \
   --set serviceMonitor.namespace=monitoring \
   --set serviceMonitor.labels.release=kube-prometheus-stack
